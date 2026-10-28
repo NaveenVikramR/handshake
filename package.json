@@ -1,0 +1,32 @@
+{
+  "name": "handshake",
+  "private": true,
+  "type": "module",
+  "packageManager": "pnpm@10.34.9",
+  "engines": {
+    "node": ">=24"
+  },
+  "scripts": {
+    "dev": "pnpm -r --parallel --if-present dev",
+    "test": "vitest run",
+    "typecheck": "pnpm -r --if-present typecheck",
+    "lint": "eslint .",
+    "format": "prettier --write .",
+    "attack": "vitest run --root tests/attacks --passWithNoTests",
+    "db:generate": "pnpm --filter @handshake/db generate",
+    "db:migrate": "pnpm --filter @handshake/db migrate",
+    "db:seed": "pnpm --filter @handshake/db seed",
+    "paypal:smoke": "pnpm --filter @handshake/merchant paypal:smoke"
+  },
+  "devDependencies": {
+    "@eslint/js": "10.0.1",
+    "@types/node": "24.19.2",
+    "eslint": "10.13.0",
+    "globals": "17.13.0",
+    "prettier": "3.9.10",
+    "tsx": "4.23.15",
+    "typescript": "6.0.3",
+    "typescript-eslint": "8.72.1",
+    "vitest": "5.0.5"
+  }
+}

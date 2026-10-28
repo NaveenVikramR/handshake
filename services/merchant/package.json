@@ -1,0 +1,10 @@
+{
+  "name": "@handshake/merchant",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "paypal:smoke": "tsx scripts/paypal-smoke.ts",
+    "typecheck": "tsc -p tsconfig.json"
+  }
+}

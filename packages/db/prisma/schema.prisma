@@ -1,0 +1,20 @@
+// Skeleton for M0. Remaining SPEC §9 tables arrive with the milestones that use them.
+
+generator client {
+  provider     = "prisma-client"
+  output       = "../src/generated/prisma"
+  moduleFormat = "esm"
+}
+
+datasource db {
+  provider = "postgresql"
+}
+
+model PaypalEvent {
+  eventId     String   @id @map("event_id")
+  type        String
+  payloadJson Json     @map("payload_json")
+  receivedAt  DateTime @default(now()) @map("received_at")
+
+  @@map("paypal_events")
+}

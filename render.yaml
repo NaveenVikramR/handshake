@@ -1,0 +1,14 @@
+# Render Blueprint (M0): passkey hello-world over HTTPS for phone testing.
+# WEBAUTHN_ORIGIN / WEBAUTHN_RP_ID default to Render's RENDER_EXTERNAL_URL, so no env setup is needed.
+services:
+  - type: web
+    name: handshake-passkey
+    runtime: node
+    plan: free
+    region: singapore
+    buildCommand: npx -y pnpm@10.34.9 install --frozen-lockfile --filter @handshake/passkey-hello
+    startCommand: node apps/passkey-hello/src/server.ts
+    healthCheckPath: /healthz
+    envVars:
+      - key: NODE_VERSION
+        value: "24"

@@ -1,0 +1,5 @@
+pnpm-lock.yaml
+**/generated/**
+**/migrations/**
+docs/
+.claude/

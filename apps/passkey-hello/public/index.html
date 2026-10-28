@@ -1,0 +1,40 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Handshake passkey test</title>
+    <style>
+      body {
+        font-family: system-ui, sans-serif;
+        max-width: 28rem;
+        margin: 2rem auto;
+        padding: 0 1rem;
+      }
+      input,
+      button {
+        font-size: 1.1rem;
+        width: 100%;
+        padding: 0.8rem;
+        margin: 0.4rem 0;
+        box-sizing: border-box;
+      }
+      pre {
+        background: #f3f3f3;
+        padding: 0.8rem;
+        white-space: pre-wrap;
+        word-break: break-all;
+      }
+    </style>
+  </head>
+  <body>
+    <h1>Passkey test</h1>
+    <p>Register a passkey, then log in with Face ID / fingerprint.</p>
+    <input id="username" placeholder="username" autocomplete="username webauthn" value="demo" />
+    <button id="register">Register passkey</button>
+    <button id="login">Log in with passkey</button>
+    <pre id="out">ready</pre>
+    <script src="/vendor/simplewebauthn-browser.js"></script>
+    <script src="/app.js"></script>
+  </body>
+</html>
