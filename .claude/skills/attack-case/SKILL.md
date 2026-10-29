@@ -18,7 +18,9 @@ export default defineAttack({
   expect: "CART_HASH_MISMATCH", // HandshakeError code the gate must return
   async run(h) {
     const { request } = await h.happyPathRequest();   // fully valid signed request
-    request.authorization.cartApproval.totalMinor += 1000;
+    const cart = request.authorization.cartApproval;
+    cart.items[0].unitMinor += 1000;                   // qty is 1, so raise the total by the same amount
+    cart.totalMinor += 1000;                           // cart stays consistent → reaches the hash check
     return h.submit(request);                          // returns { code, authorized: boolean }
   },
 });
