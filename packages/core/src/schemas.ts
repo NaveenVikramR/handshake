@@ -30,6 +30,18 @@ const header = { v: z.literal(1), iat: unixSeconds, exp: unixSeconds, nonce: Non
 
 const expAfterIat = (p: { iat: number; exp: number }) => p.exp > p.iat;
 
+/** Delivery address. Payloads carry only shipToHash = hash(ShipTo); the address itself stays in the wallet. */
+export const ShipTo = z.strictObject({
+  name: z.string().min(1).max(100),
+  line1: z.string().min(1).max(200),
+  line2: z.string().max(200).optional(),
+  city: z.string().min(1).max(100),
+  region: z.string().max(100).optional(),
+  postalCode: z.string().min(1).max(20),
+  country: z.string().regex(/^[A-Z]{2}$/, "ISO 3166-1 alpha-2"),
+});
+export type ShipTo = z.infer<typeof ShipTo>;
+
 export const Item = z.strictObject({
   sku: z.string().regex(/^[A-Z0-9-]{1,64}$/, "sku"),
   name: z.string().min(1).max(200),

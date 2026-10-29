@@ -9,6 +9,7 @@
   "scripts": {
     "dev": "pnpm -r --parallel --if-present dev",
     "test": "vitest run",
+    "test:db": "vitest run --mode db",
     "typecheck": "pnpm -r --if-present typecheck",
     "lint": "eslint .",
     "format": "prettier --write .",

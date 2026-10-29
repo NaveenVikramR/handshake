@@ -10,6 +10,8 @@ export interface WebAuthnConfig {
 export interface AppContext {
   store: WalletStore;
   webauthn: WebAuthnConfig;
+  /** This wallet's consumer agent; mandates are issued to it. */
+  consumerAgentId: string;
   /** ms since epoch; injected in tests. */
   now: () => number;
 }

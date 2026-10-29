@@ -5,26 +5,11 @@ import { approvalChallenge, isHandshakeError } from "@handshake/core";
 import { generateAuthenticationOptions } from "@simplewebauthn/server";
 import express, { Router, type Response } from "express";
 import { z } from "zod";
+import { parseAssertionBody } from "../assertion-body.js";
 import type { AppContext } from "../context.js";
 import { loadPendingApproval, verifyApproval } from "./service.js";
 
 const ApprovalId = z.string().regex(/^apr_[A-Za-z0-9_-]{22}$/);
-const b64 = z
-  .string()
-  .min(1)
-  .max(16384)
-  .regex(/^[A-Za-z0-9_-]+$/);
-const VerifyBody = z.object({
-  response: z
-    .object({
-      id: b64,
-      rawId: b64,
-      type: z.literal("public-key"),
-      response: z.object({ clientDataJSON: b64, authenticatorData: b64, signature: b64 }).loose(),
-    })
-    .loose(),
-});
-
 // Only the code goes back to the client; the reason stays in our logs.
 function sendError(res: Response, e: unknown): void {
   if (isHandshakeError(e)) return void res.status(e.status).json({ error: e.code });
@@ -68,17 +53,10 @@ export function approvalRouter(ctx: AppContext): Router {
   router.post("/approvals/:id/verify", async (req, res) => {
     const id = ApprovalId.safeParse(req.params.id);
     if (!id.success) return void res.status(404).json({ error: "APPROVAL_INVALID" });
-    const body = VerifyBody.safeParse(req.body);
-    if (!body.success) return void res.status(400).json({ error: "SCHEMA_INVALID" });
-    const r = body.data.response;
-    if (r.id !== r.rawId) return void res.status(400).json({ error: "SCHEMA_INVALID" });
+    const assertion = parseAssertionBody(req.body);
+    if (!assertion) return void res.status(400).json({ error: "SCHEMA_INVALID" });
     try {
-      await verifyApproval(ctx, id.data, {
-        credentialId: r.id,
-        authenticatorData: r.response.authenticatorData,
-        clientDataJSON: r.response.clientDataJSON,
-        signature: r.response.signature,
-      });
+      await verifyApproval(ctx, id.data, assertion);
       res.json({ id: id.data, status: "approved" });
     } catch (e) {
       sendError(res, e);

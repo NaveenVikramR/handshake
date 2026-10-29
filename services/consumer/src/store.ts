@@ -1,6 +1,6 @@
 // Persistence for the wallet: users, passkeys, registration challenges, approvals.
 // Prisma for real runs; memory for tests. Same contract.
-import { CartApproval, HandshakeError, type WebAuthnAssertion } from "@handshake/core";
+import { CartApproval, HandshakeError, IntentMandate, type WebAuthnAssertion } from "@handshake/core";
 import type { Prisma, PrismaClient } from "@handshake/db";
 
 export interface StoredCredential {
@@ -38,6 +38,20 @@ export interface CompleteApprovalInput {
   now: number;
 }
 
+export type MandateStatus = "pending" | "active";
+
+export interface StoredMandate {
+  id: string;
+  userId: string;
+  payload: IntentMandate;
+  hash: string;
+  status: MandateStatus;
+  /** ms since epoch: a pending mandate can only be activated before this. */
+  pendingUntil: number;
+  credentialId?: string;
+  assertion?: WebAuthnAssertion;
+}
+
 export interface WalletStore {
   createUser(user: { id: string; displayName: string }): Promise<void>;
   userExists(id: string): Promise<boolean>;
@@ -56,6 +70,10 @@ export interface WalletStore {
    * false if either precondition no longer holds (replay or a concurrent approval).
    */
   completeApproval(input: CompleteApprovalInput): Promise<boolean>;
+  createMandate(m: Omit<StoredMandate, "status" | "credentialId" | "assertion">): Promise<void>;
+  getMandate(id: string): Promise<StoredMandate | undefined>;
+  /** Same contract as completeApproval: pending + within pendingUntil → active, with the sign count CAS. */
+  activateMandate(input: CompleteApprovalInput): Promise<boolean>;
 }
 
 class Abort extends Error {}
@@ -140,6 +158,52 @@ export function prismaWalletStore(db: PrismaClient): WalletStore {
         ...(r.assertionJson ? { assertion: r.assertionJson as unknown as WebAuthnAssertion } : {}),
       };
     },
+    async createMandate({ id, userId, payload, hash, pendingUntil }) {
+      await db.mandate.create({
+        data: { id, userId, payloadJson: payload as Prisma.InputJsonValue, hash, pendingUntil: new Date(pendingUntil) },
+      });
+    },
+    async getMandate(id) {
+      const r = await db.mandate.findUnique({ where: { id } });
+      if (!r) return undefined;
+      const payload = IntentMandate.safeParse(r.payloadJson);
+      if (!payload.success) throw new HandshakeError("MANDATE_INVALID", "stored mandate is invalid");
+      return {
+        id: r.id,
+        userId: r.userId,
+        payload: payload.data,
+        hash: r.hash,
+        status: r.status as MandateStatus,
+        pendingUntil: r.pendingUntil.getTime(),
+        ...(r.credentialId ? { credentialId: r.credentialId } : {}),
+        ...(r.assertionJson ? { assertion: r.assertionJson as unknown as WebAuthnAssertion } : {}),
+      };
+    },
+    async activateMandate({ id, credentialId, expectedSignCount, newSignCount, assertion, now }) {
+      try {
+        await db.$transaction(async (tx) => {
+          const m = await tx.mandate.updateMany({
+            where: { id, status: "pending", pendingUntil: { gt: new Date(now) } },
+            data: {
+              status: "active",
+              credentialId,
+              assertionJson: assertion as unknown as Prisma.InputJsonValue,
+              activatedAt: new Date(now),
+            },
+          });
+          if (m.count !== 1) throw new Abort();
+          const c = await tx.walletCredential.updateMany({
+            where: { credentialId, signCount: BigInt(expectedSignCount) },
+            data: { signCount: BigInt(newSignCount) },
+          });
+          if (c.count !== 1) throw new Abort();
+        }, TX);
+        return true;
+      } catch (e) {
+        if (e instanceof Abort) return false;
+        throw e;
+      }
+    },
     async completeApproval({ id, credentialId, expectedSignCount, newSignCount, assertion, now }) {
       try {
         await db.$transaction(async (tx) => {
@@ -174,6 +238,7 @@ export function memoryWalletStore(): WalletStore {
   const challenges = new Map<string, { challenge: string; expiresAt: number }>();
   const credentials = new Map<string, StoredCredential>();
   const approvals = new Map<string, StoredApproval>();
+  const mandates = new Map<string, StoredMandate>();
 
   return {
     async createUser(u) {
@@ -213,6 +278,23 @@ export function memoryWalletStore(): WalletStore {
     async getApproval(id) {
       const a = approvals.get(id);
       return a && { ...a };
+    },
+    async createMandate(m) {
+      if ([...mandates.values()].some((x) => x.hash === m.hash)) throw new Error("mandate hash exists");
+      mandates.set(m.id, { ...m, status: "pending" });
+    },
+    async getMandate(id) {
+      const m = mandates.get(id);
+      return m && { ...m };
+    },
+    async activateMandate({ id, credentialId, expectedSignCount, newSignCount, assertion, now }) {
+      const m = mandates.get(id);
+      const c = credentials.get(credentialId);
+      if (!m || m.status !== "pending" || m.pendingUntil <= now) return false;
+      if (!c || c.signCount !== expectedSignCount) return false;
+      mandates.set(id, { ...m, status: "active", credentialId, assertion });
+      credentials.set(credentialId, { ...c, signCount: newSignCount });
+      return true;
     },
     async completeApproval({ id, credentialId, expectedSignCount, newSignCount, assertion, now }) {
       const a = approvals.get(id);

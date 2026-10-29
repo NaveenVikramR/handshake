@@ -29,6 +29,7 @@ model User {
   passkeys   RegistryPasskey[]
   approvals  Approval[]
   challenges RegistrationChallenge[]
+  mandates   Mandate[]
 
   @@map("users")
 }
@@ -90,4 +91,40 @@ model Approval {
 
   @@index([userId])
   @@map("approvals")
+}
+
+// ── M4 mandates ─────────────────────────────────────────────────────────────
+
+/// Intent mandate (SPEC §4.2). challenge = hash(payloadJson); active once the passkey approves it.
+model Mandate {
+  id            String    @id
+  userId        String    @map("user_id")
+  payloadJson   Json      @map("payload_json")
+  hash          String    @unique
+  status        String    @default("pending") // pending | active
+  /// A pending mandate must be approved before this; after it, it can never activate.
+  pendingUntil  DateTime  @map("pending_until")
+  credentialId  String?   @map("credential_id")
+  assertionJson Json?     @map("assertion_json")
+  activatedAt   DateTime? @map("activated_at")
+  createdAt     DateTime  @default(now()) @map("created_at")
+
+  user  User           @relation(fields: [userId], references: [id])
+  spend MandateSpend[]
+
+  @@index([userId])
+  @@map("mandates")
+}
+
+/// Period ledger (D17): one row per mandate per UTC calendar bucket. Written only by the merchant
+/// gate: reserve at authorize, release on void.
+model MandateSpend {
+  mandateId   String   @map("mandate_id")
+  periodStart DateTime @map("period_start")
+  spentMinor  BigInt   @default(0) @map("spent_minor")
+
+  mandate Mandate @relation(fields: [mandateId], references: [id])
+
+  @@id([mandateId, periodStart])
+  @@map("mandate_spend")
 }

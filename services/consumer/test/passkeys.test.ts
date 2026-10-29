@@ -12,7 +12,7 @@ const T0 = 1_762_000_000_000;
 
 function setup() {
   const clock = { t: T0 };
-  const ctx: AppContext = { store: memoryWalletStore(), webauthn, now: () => clock.t };
+  const ctx: AppContext = { store: memoryWalletStore(), webauthn, consumerAgentId: "agt_c_alice", now: () => clock.t };
   return { ctx, app: createApp(ctx), clock };
 }
 

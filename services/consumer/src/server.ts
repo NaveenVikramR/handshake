@@ -22,6 +22,7 @@ if (host !== rpId && !host.endsWith(`.${rpId}`)) throw new Error("WEBAUTHN_RP_ID
 const app = createApp({
   store: prismaWalletStore(createDb()),
   webauthn: { rpId, rpName: process.env.WEBAUTHN_RP_NAME ?? "Handshake", origin },
+  consumerAgentId: required("CONSUMER_AGENT_ID"),
   now: Date.now,
 });
 const port = Number(process.env.PORT ?? 4002);

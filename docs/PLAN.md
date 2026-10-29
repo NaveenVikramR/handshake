@@ -32,12 +32,13 @@ Accept: mocked-fetch tests + sandbox smoke pass.
 Accept: real phone approval succeeds; all negative tests fail closed.
 
 ## M4 Mandates — Mon 2 Nov  (SPEC §4.2, §6 step 6b)
-- [ ] create mandate with passkey; store payload, hash, assertion
-- [ ] scope + per-order + period checks; `mandate_spend` ledger (transactional)
+- [x] create mandate with passkey; store payload, hash, assertion
+- [x] scope + per-order + period checks; `mandate_spend` ledger (transactional)
 Accept: split-order attack blocked.
 
 ## M5 Merchant agent — Tue 3 Nov  (SPEC §4.1, §10)
 - [ ] seed catalog + registry; agent card; `POST /offers` signs offer, holds stock
+- [ ] Mandate merchants checked against the registry: `/mandates/options` rejects unknown/inactive merchant ids and returns their display names for the wallet to show
 - [ ] offer expiry job releases holds
 - [ ] Live sandbox webhook delivered to the deployed merchant service (moved from M2)
   1. Deploy the merchant service to Render
@@ -61,10 +62,12 @@ Accept: chat request ends in a receipt; LLM cannot change amounts (test).
 - [ ] Payee binding: `offer.merchantAgentId`, `merchantId` and `paypalMerchantId` must equal this merchant's own configured ids, else `OFFER_SIG_INVALID`
 - [ ] M2 follow-ups: `onOrderEvent` refuses to fulfil/capture/refund on `meta.simulated` events; reconciliation table for webhook state conflicts (D15); one stored `PayPal-Request-Id` per order + operation; partial refund vs full and `PAYMENT.CAPTURE.REVERSED` tracking; rate-limit `/webhooks/paypal` + cheap pre-checks before verify
 - [ ] M3 follow-ups: gate 6a uses core `verifyApprovalAssertion` against `registry_passkeys` and compare-and-sets its `signCount`; step 7 records the payload nonce atomically before any PayPal call (synced passkeys always report 0, so the nonce is the only replay guard); attack test for a replayed passkey approval
+- [ ] M4 follow-ups (D17): ledger flow `checkMandateScope` → `reserve` → nonce → order `pending_authorization` with its `periodStart` → commit → PayPal outside the tx → on failure void + `release` in the order-state CAS tx (once per order); `periodStart` from the gate clock, never `cart.iat`; mandate proof re-checked with `verifyMandateApproval(…, { fresh: false })`; map unknown-mandate FK errors to `MANDATE_INVALID`
 Accept: happy path end-to-end in sandbox.
 
 ## M8 Web UI — Fri 6 Nov
 - [ ] wallet (passkey setup, mandates, activity), phone approval page showing exact cart
+- [ ] `GET /mandates/:id` renders the mandate from server state (as approvals do) so the human approves what was stored, not what the client drew; mandate revocation (status `revoked`, checked by the gate)
 - [ ] merchant dashboard: live SSE feed of agents, decisions, PayPal states
 - [ ] shopkeeper assistant panel via `@paypal/agent-toolkit` (confirm before acting)
 Accept: full demo runs from the UI on laptop + phone.

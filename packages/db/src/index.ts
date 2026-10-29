@@ -8,3 +8,4 @@ export function createDb(connectionString = process.env.DATABASE_URL): PrismaCli
   if (!connectionString) throw new Error("DATABASE_URL is not set");
   return new PrismaClient({ adapter: new PrismaPg({ connectionString }) });
 }
+export * from "./mandate-ledger.js";
