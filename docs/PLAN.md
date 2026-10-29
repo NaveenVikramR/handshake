@@ -39,7 +39,7 @@ Accept: split-order attack blocked.
 - [x] seed catalog + registry; agent card; `POST /offers` signs offer, holds stock
 - [x] Mandate merchants checked against the registry: `/mandates/options` rejects unknown/inactive merchant ids and returns their display names for the wallet to show
 - [x] offer expiry job releases holds
-- [ ] Live sandbox webhook delivered to the deployed merchant service (moved from M2)
+- [x] Live sandbox webhook delivered to the deployed merchant service (moved from M2)
   1. Deploy the merchant service to Render
   2. Register its `https://<host>/webhooks/paypal` URL in the PayPal sandbox app (Webhooks → Add)
   3. Put the webhook id in Render's env as `PAYPAL_WEBHOOK_ID`
