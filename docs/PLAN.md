@@ -5,7 +5,7 @@ Deadline: submit by **Wed 11 Nov evening IST** (hard deadline 13 Nov 01:30 IST).
 
 ## M0 Scaffold + spikes — Thu 29 Oct  (SPEC §2, §7.2)
 - [x] pnpm workspace, tsconfig base (strict), eslint + prettier, vitest, `.env.example`, root scripts from CLAUDE.md
-- [ ] Neon project with `main` + `dev` branches; Prisma schema skeleton in `packages/db` using `url = env("DATABASE_URL")` and `directUrl = env("DIRECT_URL")`; first migration runs against `dev`
+- [x] Neon project with `main` + `dev` branches; Prisma schema skeleton in `packages/db` using `url = env("DATABASE_URL")` and `directUrl = env("DIRECT_URL")`; first migration runs against `dev`
 - [x] `pnpm paypal:smoke`: OAuth token + create/authorize/void one sandbox order
 - [x] Vault spike result written to `docs/PAYPAL.md` + `docs/DECISIONS.md`
 - [ ] Passkey hello-world deployed on Render HTTPS and tested on phone
