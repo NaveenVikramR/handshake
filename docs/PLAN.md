@@ -8,7 +8,7 @@ Deadline: submit by **Wed 11 Nov evening IST** (hard deadline 13 Nov 01:30 IST).
 - [x] Neon project with `main` + `dev` branches; Prisma schema skeleton in `packages/db` using `url = env("DATABASE_URL")` and `directUrl = env("DIRECT_URL")`; first migration runs against `dev`
 - [x] `pnpm paypal:smoke`: OAuth token + create/authorize/void one sandbox order
 - [x] Vault spike result written to `docs/PAYPAL.md` + `docs/DECISIONS.md`
-- [ ] Passkey hello-world deployed on Render HTTPS and tested on phone
+- [x] Passkey hello-world deployed on Render HTTPS and tested on phone
 Accept: smoke script prints order id + VOIDED; passkey login works on phone.
 
 ## M1 Core library — Fri 30 Oct  (SPEC §3, §4)

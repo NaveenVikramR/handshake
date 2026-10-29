@@ -34,3 +34,6 @@ Context: Prisma 7 dropped `url`/`directUrl` from `schema.prisma`. Decision: `pac
 
 ## D11 — Passkey spike is a standalone app (2026-10-29)
 Decision: `apps/passkey-hello` (Express, in-memory, runs `.ts` with Node's type stripping, no build) deployed via `render.yaml`; rpID/origin default to Render's `RENDER_EXTERNAL_URL`. Throwaway — the real approval flow goes in services/consumer (M3).
+
+## D12 — Passkey sign counts from synced authenticators (2026-10-29)
+Context: M0 passkey spike on Render HTTPS passed on desktop Chrome (Google Password Manager passkey) and on iPhone Safari (iCloud Keychain passkey): register + login verified with `userVerified: true`, and both reported `signCount: 0` on every login. Synced passkeys don't keep a counter. Decision: the M3 sign-count check accepts 0 → 0 (stored 0, new 0); if the stored count is above 0, the new count must be strictly greater — equal or lower is rejected as a possible cloned authenticator. Record per credential whether it has ever reported a non-zero count. Consequence: clone detection only works for authenticators that count (e.g. hardware keys); synced passkeys rely on UV + origin/rpId + one-time challenge instead.
