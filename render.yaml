@@ -23,7 +23,10 @@ services:
     region: ohio
     # NODE_ENV is set only at start: at build time it would make pnpm skip devDependencies (prisma).
     # Committed migrations are applied on every deploy (idempotent) via DIRECT_URL.
+    # The env check runs first so a missing dashboard variable is named in the log.
     buildCommand: >-
+      node scripts/require-env.mjs DATABASE_URL DIRECT_URL PAYPAL_CLIENT_ID PAYPAL_CLIENT_SECRET
+      PAYPAL_WEBHOOK_ID MERCHANT_AGENT_ID MERCHANT_AGENT_PRIVATE_KEY &&
       npx -y pnpm@10.34.9 install --frozen-lockfile --filter "@handshake/merchant..." &&
       npx -y pnpm@10.34.9 --filter @handshake/db exec prisma migrate deploy
     startCommand: NODE_ENV=production npx -y pnpm@10.34.9 --filter @handshake/merchant start
