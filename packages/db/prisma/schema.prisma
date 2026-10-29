@@ -30,6 +30,8 @@ model User {
   approvals  Approval[]
   challenges RegistrationChallenge[]
   mandates   Mandate[]
+  logins     LoginChallenge[]
+  sessions   Session[]
 
   @@map("users")
 }
@@ -208,4 +210,31 @@ model UsedNonce {
   exp   DateTime
 
   @@map("used_nonces")
+}
+
+// ── M6 wallet login ─────────────────────────────────────────────────────────
+
+/// Pending passkey login: challenge = hash(payloadJson); deleted on first use.
+model LoginChallenge {
+  id          String   @id
+  userId      String   @map("user_id")
+  payloadJson Json     @map("payload_json")
+  expiresAt   DateTime @map("expires_at")
+
+  user User @relation(fields: [userId], references: [id])
+
+  @@map("login_challenges")
+}
+
+/// Wallet session after a UV passkey login. Only the SHA-256 of the bearer token is stored.
+model Session {
+  tokenHash String   @id @map("token_hash")
+  userId    String   @map("user_id")
+  expiresAt DateTime @map("expires_at")
+  createdAt DateTime @default(now()) @map("created_at")
+
+  user User @relation(fields: [userId], references: [id])
+
+  @@index([userId])
+  @@map("sessions")
 }

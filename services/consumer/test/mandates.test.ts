@@ -14,9 +14,9 @@ function setup() {
   const clock = { t: T0 };
   const store = memoryWalletStore({
     merchants: [
-      { id: "mer_corner", name: "Corner Grocery", status: "active" },
-      { id: "mer_bakery", name: "Bakery", status: "active" },
-      { id: "mer_gone", name: "Suspended Shop", status: "suspended" },
+      { id: "mer_corner", name: "Corner Grocery", paypalMerchantId: "PPCORNER1", status: "active" },
+      { id: "mer_bakery", name: "Bakery", paypalMerchantId: "PPBAKERY1", status: "active" },
+      { id: "mer_gone", name: "Suspended Shop", paypalMerchantId: "PPGONE1", status: "suspended" },
     ],
   });
   const ctx: AppContext = { store, webauthn, consumerAgentId: "agt_c_wallet", now: () => clock.t };

@@ -1,8 +1,10 @@
 import express, { type ErrorRequestHandler, type Express } from "express";
+import { chatRouter } from "./agent/routes.js";
 import { approvalRouter } from "./approvals/routes.js";
 import type { AppContext } from "./context.js";
 import { mandateRouter } from "./mandates/routes.js";
 import { passkeyRouter } from "./passkeys/routes.js";
+import { sessionRouter } from "./sessions/routes.js";
 
 export function createApp(ctx: AppContext): Express {
   const app = express();
@@ -13,6 +15,8 @@ export function createApp(ctx: AppContext): Express {
   app.use(passkeyRouter(ctx));
   app.use(approvalRouter(ctx));
   app.use(mandateRouter(ctx));
+  app.use(sessionRouter(ctx));
+  app.use(chatRouter(ctx));
 
   // Never return stacks: bad JSON is a schema error, anything else a bare 500.
   const onError: ErrorRequestHandler = (err: { type?: string }, _req, res, _next) => {

@@ -33,6 +33,8 @@ describe.skipIf(!enabled)("prismaWalletStore on Postgres (DB_TESTS=1)", () => {
     await db.walletCredential.deleteMany({ where: { credentialId } });
     await db.registryPasskey.deleteMany({ where: { userId } });
     await db.registrationChallenge.deleteMany({ where: { userId } });
+    await db.loginChallenge.deleteMany({ where: { userId } });
+    await db.session.deleteMany({ where: { userId } });
     await db.user.deleteMany({ where: { id: userId } });
     await db.registryMerchant.deleteMany({ where: { id: { startsWith: `mer_store${tag}` } } });
     await db.$disconnect();
@@ -139,8 +141,35 @@ describe.skipIf(!enabled)("prismaWalletStore on Postgres (DB_TESTS=1)", () => {
     });
     const rows = await store.getMerchants([a, b, `mer_store${tag}none`]);
     expect(rows.sort((x, y) => x.id.localeCompare(y.id))).toEqual([
-      { id: a, name: "Active", status: "active" },
-      { id: b, name: "Gone", status: "suspended" },
+      { id: a, name: "Active", paypalMerchantId: `PPA${tag}`, status: "active" },
+      { id: b, name: "Gone", paypalMerchantId: `PPB${tag}`, status: "suspended" },
     ]);
+  });
+
+  it("login challenge: concurrent takes yield it once; expired yields nothing", async () => {
+    await store.putLoginChallenge({ id: `lgn_${tag}a`, userId, payload: { p: 1 }, expiresAt: now + 60_000 });
+    const taken = await Promise.all([store.takeLoginChallenge(`lgn_${tag}a`, now), store.takeLoginChallenge(`lgn_${tag}a`, now)]);
+    expect(taken.filter(Boolean)).toHaveLength(1);
+    expect(taken.find(Boolean)?.payload).toEqual({ p: 1 });
+    await store.putLoginChallenge({ id: `lgn_${tag}b`, userId, payload: {}, expiresAt: now - 1 });
+    expect(await store.takeLoginChallenge(`lgn_${tag}b`, now)).toBeUndefined();
+  });
+
+  it("sessions resolve by token hash until they expire; wallet sign count CAS", async () => {
+    await store.createSession({ tokenHash: `th${tag}`, userId, expiresAt: now + 60_000 });
+    expect(await store.getSessionUser(`th${tag}`, now)).toBe(userId);
+    expect(await store.getSessionUser(`th${tag}`, now + 60_001)).toBeUndefined();
+    const cur = (await store.getCredential(credentialId))!.signCount;
+    const cas = await Promise.all([
+      store.advanceWalletSignCount(credentialId, cur, cur + 1),
+      store.advanceWalletSignCount(credentialId, cur, cur + 1),
+    ]);
+    expect(cas.filter(Boolean)).toHaveLength(1);
+  });
+
+  it("listActiveMandates returns only active ones, re-parsed", async () => {
+    const active = await store.listActiveMandates(userId);
+    expect(active.length).toBeGreaterThan(0);
+    expect(active.every((m) => m.status === "active" && m.payload.type === "intent_mandate")).toBe(true);
   });
 });

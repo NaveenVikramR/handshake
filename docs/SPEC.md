@@ -83,7 +83,7 @@ Approval proof = WebAuthn assertion whose challenge = `hash(cartApproval)`. `exp
 1. User: "2 kg rice and detergent, deliver Friday."
 2. Consumer agent (LLM + tools) discovers merchant via `GET /.well-known/agent.json`, requests offer.
 3. Consumer verifies offer signature against registry and `merchantId ↔ merchantAgentId ↔ paypalMerchantId`. Fails → `OFFER_SIG_INVALID` / `MERCHANT_UNTRUSTED`.
-4. Policy (code): within mandate scope and limits → mandate path. Otherwise (over limit, new merchant, unusual category, risk flag) → step-up: create cart approval, notify phone page, wait for passkey.
+4. Policy (code, D21): within an active mandate's scope, per-order and period limits (ledger), same ship-to → mandate path. Otherwise (over limit, new merchant, unusual category, risk flag) → step-up: create cart approval, notify phone page, wait for passkey.
 5. Consumer sends payment request.
 6. Merchant gate (§6) verifies, then PayPal authorize.
 7. Fulfillment check passes → capture → add tracking → receipt. Fails or hold expires → void.
@@ -128,7 +128,7 @@ Verify via PayPal verify-webhook-signature; dedupe on event id (`paypal_events` 
 ## 10. HTTP API
 Merchant :4001 — `GET /.well-known/agent.json`, `GET /catalog`, `POST /offers`, `POST /payments`, `POST /orders/:id/fulfil`, `POST /webhooks/paypal`, `GET /dashboard/stream` (SSE), `POST /assistant` (shopkeeper).
 `GET /.well-known/agent.json` is an unsigned discovery hint (ids, name, endpoints; no public key). Consumers verify keys and ids against the registry, never the card.
-Consumer :4002 — `POST /passkeys/register/{options,verify}`, `POST /mandates/{options,verify}` (every scoped merchant must be active in the registry, else `MERCHANT_UNTRUSTED`; the response names them), `POST /chat` (SSE agent loop), `GET /approvals/:id`, `POST /approvals/:id/verify`, `GET /activity`.
+Consumer :4002 — `POST /passkeys/register/{options,verify}`, `POST /passkeys/login/{options,verify}` (UV passkey over `hash({type:"wallet_login",…})` → 1-hour bearer session, D20), `POST /mandates/{options,verify}` (every scoped merchant must be active in the registry, else `MERCHANT_UNTRUSTED`; the response names them), `POST /chat` (SSE agent loop; bearer session required, the user is the session's; body `{message, shipTo?}`, D21), `GET /approvals/:id`, `POST /approvals/:id/verify`, `GET /activity`.
 
 ## 11. Attack model (each must be a test in `tests/attacks`)
 Amount changed after approval · address changed after approval · item swapped · currency swapped · replayed approval · expired approval · approval for another merchant · fake merchant agent (unknown key) · look-alike merchant id · merchant price change after offer · offer reuse · unknown consumer agent · forged agent sig · mandate over per-order limit · mandate over period limit (split orders) · out-of-scope merchant/category · prompt injection in item note / address line / merchant reply · duplicate requestId · duplicate webhook · forged webhook · UV flag missing · signCount rollback · wrong origin/rpId. Target: 0 unauthorized authorizations, 0 duplicate charges.

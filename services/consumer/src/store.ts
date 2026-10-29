@@ -52,16 +52,47 @@ export interface StoredMandate {
   assertion?: WebAuthnAssertion;
 }
 
-/** A trust-registry merchant row, as the wallet shows it. */
+/** A trust-registry merchant row. */
 export interface RegistryMerchant {
   id: string;
   name: string;
+  paypalMerchantId: string;
   status: string;
+}
+
+/** A trust-registry agent row. */
+export interface RegistryAgentRow {
+  id: string;
+  role: string;
+  /** Ed25519 SPKI DER, base64url. */
+  publicKey: string;
+  status: string;
+  merchantId: string | null;
+}
+
+export interface LoginChallengeRow {
+  id: string;
+  userId: string;
+  /** The value whose hash is the WebAuthn challenge. */
+  payload: unknown;
+  /** ms since epoch */
+  expiresAt: number;
 }
 
 export interface WalletStore {
   /** Registry rows for these merchant ids; unknown ids are simply absent. */
   getMerchants(ids: string[]): Promise<RegistryMerchant[]>;
+  getRegistryAgent(id: string): Promise<RegistryAgentRow | undefined>;
+  /** Active mandates of this user, newest first (the caller still checks exp and scope). */
+  listActiveMandates(userId: string): Promise<StoredMandate[]>;
+  putLoginChallenge(c: LoginChallengeRow): Promise<void>;
+  /** Deletes the challenge; returns it only if this call deleted it and it had not expired. */
+  takeLoginChallenge(id: string, now: number): Promise<LoginChallengeRow | undefined>;
+  /** Wallet sign count compare-and-set (D16); false if it moved since it was read. */
+  advanceWalletSignCount(credentialId: string, expected: number, next: number): Promise<boolean>;
+  createSession(s: { tokenHash: string; userId: string; expiresAt: number }): Promise<void>;
+  /** The session's user if it exists and hasn't expired. */
+  getSessionUser(tokenHash: string, now: number): Promise<string | undefined>;
   createUser(user: { id: string; displayName: string }): Promise<void>;
   userExists(id: string): Promise<boolean>;
   hasCredentials(userId: string): Promise<boolean>;
@@ -107,7 +138,54 @@ export function prismaWalletStore(db: PrismaClient): WalletStore {
 
   return {
     async getMerchants(ids) {
-      return db.registryMerchant.findMany({ where: { id: { in: ids } }, select: { id: true, name: true, status: true } });
+      return db.registryMerchant.findMany({
+        where: { id: { in: ids } },
+        select: { id: true, name: true, paypalMerchantId: true, status: true },
+      });
+    },
+    async getRegistryAgent(id) {
+      return (await db.registryAgent.findUnique({ where: { id } })) ?? undefined;
+    },
+    async listActiveMandates(userId) {
+      const rows = await db.mandate.findMany({
+        where: { userId, status: "active" },
+        orderBy: { activatedAt: "desc" },
+        select: { id: true },
+        take: 20,
+      });
+      const out: StoredMandate[] = [];
+      for (const { id } of rows) {
+        const m = await this.getMandate(id);
+        if (m) out.push(m);
+      }
+      return out;
+    },
+    async putLoginChallenge({ id, userId, payload, expiresAt }) {
+      await db.loginChallenge.create({
+        data: { id, userId, payloadJson: payload as Prisma.InputJsonValue, expiresAt: new Date(expiresAt) },
+      });
+    },
+    async takeLoginChallenge(id, now) {
+      const row = await db.loginChallenge.findUnique({ where: { id } });
+      if (!row) return undefined;
+      // Of two concurrent takes, only one deletes the row.
+      const { count } = await db.loginChallenge.deleteMany({ where: { id } });
+      if (count !== 1 || row.expiresAt.getTime() <= now) return undefined;
+      return { id: row.id, userId: row.userId, payload: row.payloadJson, expiresAt: row.expiresAt.getTime() };
+    },
+    async advanceWalletSignCount(credentialId, expected, next) {
+      const { count } = await db.walletCredential.updateMany({
+        where: { credentialId, signCount: BigInt(expected) },
+        data: { signCount: BigInt(next) },
+      });
+      return count === 1;
+    },
+    async createSession({ tokenHash, userId, expiresAt }) {
+      await db.session.create({ data: { tokenHash, userId, expiresAt: new Date(expiresAt) } });
+    },
+    async getSessionUser(tokenHash, now) {
+      const s = await db.session.findUnique({ where: { tokenHash } });
+      return s && s.expiresAt.getTime() > now ? s.userId : undefined;
     },
     async createUser({ id, displayName }) {
       await db.user.create({ data: { id, displayName } });
@@ -245,8 +323,13 @@ export function prismaWalletStore(db: PrismaClient): WalletStore {
 }
 
 /** In-memory store for tests only: no isolation between concurrent requests. */
-export function memoryWalletStore(seed: { merchants?: RegistryMerchant[] } = {}): WalletStore {
+export function memoryWalletStore(
+  seed: { merchants?: RegistryMerchant[]; agents?: RegistryAgentRow[] } = {},
+): WalletStore {
   const merchants = new Map((seed.merchants ?? []).map((m) => [m.id, { ...m }]));
+  const agents = new Map((seed.agents ?? []).map((a) => [a.id, { ...a }]));
+  const logins = new Map<string, LoginChallengeRow>();
+  const sessions = new Map<string, { userId: string; expiresAt: number }>();
   const users = new Map<string, { id: string; displayName: string }>();
   const challenges = new Map<string, { challenge: string; expiresAt: number }>();
   const credentials = new Map<string, StoredCredential>();
@@ -259,6 +342,34 @@ export function memoryWalletStore(seed: { merchants?: RegistryMerchant[] } = {})
         const m = merchants.get(id);
         return m ? [{ ...m }] : [];
       });
+    },
+    async getRegistryAgent(id) {
+      const a = agents.get(id);
+      return a && { ...a };
+    },
+    async listActiveMandates(userId) {
+      return [...mandates.values()].filter((m) => m.userId === userId && m.status === "active").reverse();
+    },
+    async putLoginChallenge(c) {
+      logins.set(c.id, { ...c });
+    },
+    async takeLoginChallenge(id, now) {
+      const c = logins.get(id);
+      logins.delete(id);
+      return c && c.expiresAt > now ? c : undefined;
+    },
+    async advanceWalletSignCount(credentialId, expected, next) {
+      const c = credentials.get(credentialId);
+      if (!c || c.signCount !== expected) return false;
+      credentials.set(credentialId, { ...c, signCount: next });
+      return true;
+    },
+    async createSession({ tokenHash, userId, expiresAt }) {
+      sessions.set(tokenHash, { userId, expiresAt });
+    },
+    async getSessionUser(tokenHash, now) {
+      const s = sessions.get(tokenHash);
+      return s && s.expiresAt > now ? s.userId : undefined;
     },
     async createUser(u) {
       if (users.has(u.id)) throw new Error("user exists");

@@ -48,10 +48,10 @@ Accept: split-order attack blocked.
 Accept: offer verifies with core; tampered offer rejected.
 
 ## M6 Consumer agent — Wed 4 Nov  (SPEC §5.2, §8)
-- [ ] LLM tool loop (discover, get offer, verify offer, decide path, request approval, pay)
-- [ ] step-up: approval record + phone page URL + wait
-- [ ] M5 follow-ups: sign offer requests (D18) with `CONSUMER_AGENT_PRIVATE_KEY`; trust keys/ids from the registry, never the agent card; product names in offers reach the LLM only as delimited untrusted text
-- [ ] policy in code decides mandate vs step-up
+- [x] LLM tool loop (discover, get offer, verify offer, decide path, request approval, pay)
+- [x] step-up: approval record + phone page URL + wait
+- [x] M5 follow-ups: sign offer requests (D18) with `CONSUMER_AGENT_PRIVATE_KEY`; trust keys/ids from the registry, never the agent card; product names in offers reach the LLM only as delimited untrusted text
+- [x] policy in code decides mandate vs step-up
 Accept: chat request ends in a receipt; LLM cannot change amounts (test).
 
 ## M7 Merchant gate + settlement — Thu 5 Nov  (SPEC §6, §7.1)
@@ -63,6 +63,7 @@ Accept: chat request ends in a receipt; LLM cannot change amounts (test).
 - [ ] M2 follow-ups: `onOrderEvent` refuses to fulfil/capture/refund on `meta.simulated` events; reconciliation table for webhook state conflicts (D15); one stored `PayPal-Request-Id` per order + operation; partial refund vs full and `PAYMENT.CAPTURE.REVERSED` tracking; rate-limit `/webhooks/paypal` + cheap pre-checks before verify
 - [ ] M3 follow-ups: gate 6a uses core `verifyApprovalAssertion` against `registry_passkeys` and compare-and-sets its `signCount`; step 7 records the payload nonce atomically before any PayPal call (synced passkeys always report 0, so the nonce is the only replay guard); attack test for a replayed passkey approval
 - [ ] M5 follow-ups (D18): gate's offer CAS is `open → used` only while `holdUntil > now`; `used_nonces` keyed by (`kid`, `type`, `nonce`) with cleanup by `exp`; re-check this merchant's registry status per request (or short-TTL cache) instead of only at startup
+- [ ] M6 follow-ups (D21): `POST /payments` accepts the M6 payment request, and a real chat ends in a gate-issued receipt (M6 proved it against a stub); categories for 6b from `products`, never the request; spend reserved atomically in the tx that marks the offer used; attack test: parallel chats splitting an order across the period limit
 - [ ] M4 follow-ups (D17): ledger flow `checkMandateScope` → `reserve` → nonce → order `pending_authorization` with its `periodStart` → commit → PayPal outside the tx → on failure void + `release` in the order-state CAS tx (once per order); `periodStart` from the gate clock, never `cart.iat`; mandate proof re-checked with `verifyMandateApproval(…, { fresh: false })`; map unknown-mandate FK errors to `MANDATE_INVALID`
 Accept: happy path end-to-end in sandbox.
 
@@ -70,6 +71,7 @@ Accept: happy path end-to-end in sandbox.
 - [ ] wallet (passkey setup, mandates, activity), phone approval page showing exact cart
 - [ ] register/authenticate endpoints; challenge = `hash(payload)` (moved from M3)
 - [ ] `GET /mandates/:id` renders the mandate from server state (as approvals do) so the human approves what was stored, not what the client drew; mandate revocation (status `revoked`, checked by the gate)
+- [ ] M6 follow-ups: `deleteSession` (logout) and session revocation; mark a pending approval cancelled when its chat closes; pin each `MERCHANT_URL` to its `merchantId` and refuse duplicates
 - [ ] merchant dashboard: live SSE feed of agents, decisions, PayPal states
 - [ ] shopkeeper assistant panel via `@paypal/agent-toolkit` (confirm before acting)
 Accept: full demo runs from the UI on laptop + phone.
@@ -83,6 +85,7 @@ Accept: 0 unauthorized authorizations, 0 duplicate charges.
 - [ ] demo seed script, reset button, simulate-webhook button
 - [ ] error messages human-readable on dashboard
 - [ ] Low findings: `signEnvelope` runtime type check, bound `holdUntil` (≤ 15 min from `iat`), generic error messages in HTTP responses (detail only in decisions log)
+- [ ] M6 low findings: `/passkeys/login/options` rate-limited per IP and user, pending challenges capped and expired rows swept, same response for unknown users; step-up requires an explicit `shipTo`
 - [ ] M3 low findings: rate-limit `/passkeys/register/options` (each call inserts a user row) or create the user only on verify; map an approval that expires mid-verify to `APPROVAL_EXPIRED` instead of `APPROVAL_REPLAY`
 
 ## M11 Ship — Mon 9 Nov

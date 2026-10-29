@@ -12,6 +12,7 @@
     "@handshake/db": "workspace:*",
     "@simplewebauthn/server": "14.0.3",
     "express": "5.3.0",
+    "openai": "7.34.0",
     "zod": "4.6.7"
   },
   "devDependencies": {
