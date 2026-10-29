@@ -86,7 +86,7 @@ Accept: 0 unauthorized authorizations, 0 duplicate charges.
 - [ ] M3 low findings: rate-limit `/passkeys/register/options` (each call inserts a user row) or create the user only on verify; map an approval that expires mid-verify to `APPROVAL_EXPIRED` instead of `APPROVAL_REPLAY`
 
 ## M11 Ship — Mon 9 Nov
-- [ ] Render deploy (3 services) pointing at the Neon `main` branch; migrations applied there; health checks
+- [ ] Render deploy (3 services) pointing at the Neon `main` branch; migrations applied there; health checks (merchant already on Render against `dev`, D19: switch `DATABASE_URL`/`DIRECT_URL` to `main`, seed it)
 - [ ] README (problem, architecture diagram, setup, sandbox creds, "what changed", AI tools used), MIT LICENSE
 - [ ] `/ship-check` passes
 

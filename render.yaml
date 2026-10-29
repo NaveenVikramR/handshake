@@ -1,5 +1,8 @@
-# Render Blueprint (M0): passkey hello-world over HTTPS for phone testing.
+# Render Blueprint.
+# M0: passkey hello-world over HTTPS for phone testing.
 # WEBAUTHN_ORIGIN / WEBAUTHN_RP_ID default to Render's RENDER_EXTERNAL_URL, so no env setup is needed.
+# M5: merchant service. Uses the Neon dev branch until M11 (D19). Secrets are sync: false: set them in
+# the Render dashboard, never here.
 services:
   - type: web
     name: handshake-passkey
@@ -12,3 +15,38 @@ services:
     envVars:
       - key: NODE_VERSION
         value: "24"
+
+  - type: web
+    name: handshake-merchant
+    runtime: node
+    plan: free
+    region: ohio
+    # NODE_ENV is set only at start: at build time it would make pnpm skip devDependencies (prisma).
+    # Committed migrations are applied on every deploy (idempotent) via DIRECT_URL.
+    buildCommand: >-
+      npx -y pnpm@10.34.9 install --frozen-lockfile --filter "@handshake/merchant..." &&
+      npx -y pnpm@10.34.9 --filter @handshake/db exec prisma migrate deploy
+    startCommand: NODE_ENV=production npx -y pnpm@10.34.9 --filter @handshake/merchant start
+    healthCheckPath: /health
+    envVars:
+      - key: NODE_VERSION
+        value: "24"
+      # Fixed, not secrets: pinned so the dashboard can't point at live PayPal or enable the simulator.
+      - key: PAYPAL_BASE_URL
+        value: https://api-m.sandbox.paypal.com
+      - key: DEMO_MODE
+        value: "false"
+      - key: DATABASE_URL
+        sync: false
+      - key: DIRECT_URL
+        sync: false
+      - key: PAYPAL_CLIENT_ID
+        sync: false
+      - key: PAYPAL_CLIENT_SECRET
+        sync: false
+      - key: PAYPAL_WEBHOOK_ID
+        sync: false
+      - key: MERCHANT_AGENT_ID
+        sync: false
+      - key: MERCHANT_AGENT_PRIVATE_KEY
+        sync: false
