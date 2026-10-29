@@ -12,10 +12,10 @@ Deadline: submit by **Wed 11 Nov evening IST** (hard deadline 13 Nov 01:30 IST).
 Accept: smoke script prints order id + VOIDED; passkey login works on phone.
 
 ## M1 Core library — Fri 30 Oct  (SPEC §3, §4)
-- [ ] `jcs.ts` (RFC 8785) with RFC test vectors
-- [ ] `hash`, Ed25519 `sign/verify`, signed envelope helpers
-- [ ] zod schemas for Offer, IntentMandate, CartApproval, PaymentRequest, Receipt
-- [ ] `errors.ts` with every code in SPEC §6 + `HandshakeError`
+- [x] `jcs.ts` (RFC 8785) with RFC test vectors
+- [x] `hash`, Ed25519 `sign/verify`, signed envelope helpers
+- [x] zod schemas for Offer, IntentMandate, CartApproval, PaymentRequest, Receipt
+- [x] `errors.ts` with every code in SPEC §6 + `HandshakeError`
 Accept: ≥25 unit tests pass; tampering any field breaks verification.
 
 ## M2 PayPal client — Sat 31 Oct  (SPEC §7, docs/PAYPAL.md)
