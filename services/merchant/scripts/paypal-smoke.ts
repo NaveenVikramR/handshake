@@ -38,7 +38,16 @@ function log(step: string, detail: Record<string, unknown> = {}): void {
 async function waitForApproval(client: PayPalClient, orderId: string): Promise<void> {
   const deadline = Date.now() + APPROVAL_TIMEOUT_MS;
   while (Date.now() < deadline) {
-    const order = await client.getOrder(orderId);
+    let order: PayPalOrder;
+    try {
+      order = await client.getOrder(orderId);
+    } catch (err) {
+      // A slow or failed poll is transient (GET has no side effects): log it and poll again.
+      if (!(err instanceof PayPalApiError) || (err.httpStatus !== 0 && err.httpStatus < 500)) throw err;
+      log("poll failed, retrying", describe(err));
+      await new Promise((r) => setTimeout(r, 3000));
+      continue;
+    }
     if (order.status === "APPROVED") return;
     await new Promise((r) => setTimeout(r, 3000));
   }

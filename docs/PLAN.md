@@ -19,7 +19,7 @@ Accept: smoke script prints order id + VOIDED; passkey login works on phone.
 Accept: ≥25 unit tests pass; tampering any field breaks verification.
 
 ## M2 PayPal client — Sat 31 Oct  (SPEC §7, docs/PAYPAL.md)
-- [ ] token cache, `createOrderAuthorize`, `capture`, `void`, `refund`, `addTracking`
+- [x] token cache, `createOrderAuthorize`, `capture`, `void`, `refund`, `addTracking`
 - [x] `PayPal-Request-Id` on every POST; decimal-string conversion at boundary only
 - [ ] webhook verify + dedupe table; `DEMO_MODE` simulate endpoint
 - [x] order state machine with transition tests
