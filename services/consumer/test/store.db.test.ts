@@ -34,6 +34,7 @@ describe.skipIf(!enabled)("prismaWalletStore on Postgres (DB_TESTS=1)", () => {
     await db.registryPasskey.deleteMany({ where: { userId } });
     await db.registrationChallenge.deleteMany({ where: { userId } });
     await db.user.deleteMany({ where: { id: userId } });
+    await db.registryMerchant.deleteMany({ where: { id: { startsWith: `mer_store${tag}` } } });
     await db.$disconnect();
   });
 
@@ -126,5 +127,20 @@ describe.skipIf(!enabled)("prismaWalletStore on Postgres (DB_TESTS=1)", () => {
       await store.activateMandate({ ...input, id: late.mandateId, expectedSignCount: cur, newSignCount: cur + 1 }),
     ).toBe(false);
     expect((await store.getMandate(late.mandateId))?.status).toBe("pending");
+  });
+
+  it("getMerchants returns registry rows for known ids only, with status", async () => {
+    const [a, b] = [`mer_store${tag}a`, `mer_store${tag}b`];
+    await db.registryMerchant.createMany({
+      data: [
+        { id: a, name: "Active", paypalMerchantId: `PPA${tag}`, status: "active" },
+        { id: b, name: "Gone", paypalMerchantId: `PPB${tag}`, status: "suspended" },
+      ],
+    });
+    const rows = await store.getMerchants([a, b, `mer_store${tag}none`]);
+    expect(rows.sort((x, y) => x.id.localeCompare(y.id))).toEqual([
+      { id: a, name: "Active", status: "active" },
+      { id: b, name: "Gone", status: "suspended" },
+    ]);
   });
 });

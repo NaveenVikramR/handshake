@@ -23,7 +23,7 @@ export function mandateRouter(ctx: AppContext): Router {
     const body = MandateRequest.safeParse(req.body);
     if (!body.success) return void res.status(400).json({ error: "SCHEMA_INVALID" });
     try {
-      const { mandateId, mandate, hash } = await createMandate(ctx, body.data);
+      const { mandateId, mandate, hash, merchants } = await createMandate(ctx, body.data);
       const credentials = await ctx.store.listCredentials(mandate.userId);
       const options = await generateAuthenticationOptions({
         rpID: ctx.webauthn.rpId,
@@ -36,8 +36,8 @@ export function mandateRouter(ctx: AppContext): Router {
         })),
       });
       if (options.challenge !== hash) throw new Error("challenge does not equal hash(mandate)");
-      // The wallet shows exactly these fields before the human approves.
-      res.json({ mandateId, mandate, options });
+      // The wallet shows exactly these fields (and the registry names of the merchants) before the human approves.
+      res.json({ mandateId, mandate, merchants, options });
     } catch (e) {
       sendError(res, e);
     }

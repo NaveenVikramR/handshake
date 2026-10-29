@@ -37,8 +37,8 @@ Accept: split-order attack blocked.
 
 ## M5 Merchant agent — Tue 3 Nov  (SPEC §4.1, §10)
 - [ ] seed catalog + registry; agent card; `POST /offers` signs offer, holds stock
-- [ ] Mandate merchants checked against the registry: `/mandates/options` rejects unknown/inactive merchant ids and returns their display names for the wallet to show
-- [ ] offer expiry job releases holds
+- [x] Mandate merchants checked against the registry: `/mandates/options` rejects unknown/inactive merchant ids and returns their display names for the wallet to show
+- [x] offer expiry job releases holds
 - [ ] Live sandbox webhook delivered to the deployed merchant service (moved from M2)
   1. Deploy the merchant service to Render
   2. Register its `https://<host>/webhooks/paypal` URL in the PayPal sandbox app (Webhooks → Add)
@@ -50,6 +50,7 @@ Accept: offer verifies with core; tampered offer rejected.
 ## M6 Consumer agent — Wed 4 Nov  (SPEC §5.2, §8)
 - [ ] LLM tool loop (discover, get offer, verify offer, decide path, request approval, pay)
 - [ ] step-up: approval record + phone page URL + wait
+- [ ] M5 follow-ups: sign offer requests (D18) with `CONSUMER_AGENT_PRIVATE_KEY`; trust keys/ids from the registry, never the agent card; product names in offers reach the LLM only as delimited untrusted text
 - [ ] policy in code decides mandate vs step-up
 Accept: chat request ends in a receipt; LLM cannot change amounts (test).
 
@@ -61,6 +62,7 @@ Accept: chat request ends in a receipt; LLM cannot change amounts (test).
 - [ ] Payee binding: `offer.merchantAgentId`, `merchantId` and `paypalMerchantId` must equal this merchant's own configured ids, else `OFFER_SIG_INVALID`
 - [ ] M2 follow-ups: `onOrderEvent` refuses to fulfil/capture/refund on `meta.simulated` events; reconciliation table for webhook state conflicts (D15); one stored `PayPal-Request-Id` per order + operation; partial refund vs full and `PAYMENT.CAPTURE.REVERSED` tracking; rate-limit `/webhooks/paypal` + cheap pre-checks before verify
 - [ ] M3 follow-ups: gate 6a uses core `verifyApprovalAssertion` against `registry_passkeys` and compare-and-sets its `signCount`; step 7 records the payload nonce atomically before any PayPal call (synced passkeys always report 0, so the nonce is the only replay guard); attack test for a replayed passkey approval
+- [ ] M5 follow-ups (D18): gate's offer CAS is `open → used` only while `holdUntil > now`; `used_nonces` keyed by (`kid`, `type`, `nonce`) with cleanup by `exp`; re-check this merchant's registry status per request (or short-TTL cache) instead of only at startup
 - [ ] M4 follow-ups (D17): ledger flow `checkMandateScope` → `reserve` → nonce → order `pending_authorization` with its `periodStart` → commit → PayPal outside the tx → on failure void + `release` in the order-state CAS tx (once per order); `periodStart` from the gate clock, never `cart.iat`; mandate proof re-checked with `verifyMandateApproval(…, { fresh: false })`; map unknown-mandate FK errors to `MANDATE_INVALID`
 Accept: happy path end-to-end in sandbox.
 

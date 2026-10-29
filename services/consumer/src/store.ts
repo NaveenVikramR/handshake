@@ -52,7 +52,16 @@ export interface StoredMandate {
   assertion?: WebAuthnAssertion;
 }
 
+/** A trust-registry merchant row, as the wallet shows it. */
+export interface RegistryMerchant {
+  id: string;
+  name: string;
+  status: string;
+}
+
 export interface WalletStore {
+  /** Registry rows for these merchant ids; unknown ids are simply absent. */
+  getMerchants(ids: string[]): Promise<RegistryMerchant[]>;
   createUser(user: { id: string; displayName: string }): Promise<void>;
   userExists(id: string): Promise<boolean>;
   hasCredentials(userId: string): Promise<boolean>;
@@ -97,6 +106,9 @@ export function prismaWalletStore(db: PrismaClient): WalletStore {
   });
 
   return {
+    async getMerchants(ids) {
+      return db.registryMerchant.findMany({ where: { id: { in: ids } }, select: { id: true, name: true, status: true } });
+    },
     async createUser({ id, displayName }) {
       await db.user.create({ data: { id, displayName } });
     },
@@ -233,7 +245,8 @@ export function prismaWalletStore(db: PrismaClient): WalletStore {
 }
 
 /** In-memory store for tests only: no isolation between concurrent requests. */
-export function memoryWalletStore(): WalletStore {
+export function memoryWalletStore(seed: { merchants?: RegistryMerchant[] } = {}): WalletStore {
+  const merchants = new Map((seed.merchants ?? []).map((m) => [m.id, { ...m }]));
   const users = new Map<string, { id: string; displayName: string }>();
   const challenges = new Map<string, { challenge: string; expiresAt: number }>();
   const credentials = new Map<string, StoredCredential>();
@@ -241,6 +254,12 @@ export function memoryWalletStore(): WalletStore {
   const mandates = new Map<string, StoredMandate>();
 
   return {
+    async getMerchants(ids) {
+      return ids.flatMap((id) => {
+        const m = merchants.get(id);
+        return m ? [{ ...m }] : [];
+      });
+    },
     async createUser(u) {
       if (users.has(u.id)) throw new Error("user exists");
       users.set(u.id, u);

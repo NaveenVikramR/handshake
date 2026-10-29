@@ -35,7 +35,7 @@ export type MandateRequest = z.infer<typeof MandateRequest>;
 export async function createMandate(
   ctx: AppContext,
   req: MandateRequest,
-): Promise<{ mandateId: string; mandate: IntentMandate; hash: string }> {
+): Promise<{ mandateId: string; mandate: IntentMandate; hash: string; merchants: { id: string; name: string }[] }> {
   if (!(await ctx.store.userExists(req.userId)) || !(await ctx.store.hasCredentials(req.userId))) {
     throw new HandshakeError("MANDATE_INVALID", "user has no passkey");
   }
@@ -62,6 +62,7 @@ export async function createMandate(
   const parsed = IntentMandate.safeParse(draft);
   if (!parsed.success) throw new HandshakeError("SCHEMA_INVALID", "mandate failed schema");
   const mandate = parsed.data;
+  const merchants = await registeredMerchants(ctx, mandate.scope.merchants);
   const h = hash(mandate);
   await ctx.store.createMandate({
     id: mandate.mandateId,
@@ -70,7 +71,20 @@ export async function createMandate(
     hash: h,
     pendingUntil: ctx.now() + MANDATE_SIGN_WINDOW_MS,
   });
-  return { mandateId: mandate.mandateId, mandate, hash: h };
+  return { mandateId: mandate.mandateId, mandate, hash: h, merchants };
+}
+
+/**
+ * Every merchant in scope must be active in the trust registry, else MERCHANT_UNTRUSTED. Returns
+ * their registry names in scope order, so the wallet shows who the human is authorising, not an id.
+ */
+async function registeredMerchants(ctx: AppContext, ids: string[]): Promise<{ id: string; name: string }[]> {
+  const rows = new Map((await ctx.store.getMerchants(ids)).map((m) => [m.id, m]));
+  return ids.map((id) => {
+    const m = rows.get(id);
+    if (!m || m.status !== "active") throw new HandshakeError("MERCHANT_UNTRUSTED", "merchant not active in the registry");
+    return { id: m.id, name: m.name };
+  });
 }
 
 export async function loadPendingMandate(ctx: AppContext, id: string): Promise<StoredMandate> {

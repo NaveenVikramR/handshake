@@ -1,6 +1,12 @@
 import { verifyEnvelope, verifyPayload } from "./crypto.js";
 import { HandshakeError } from "./errors.js";
-import { paymentRequestSigningInput, type Authorization, type PaymentRequest, type SignedOffer } from "./schemas.js";
+import {
+  paymentRequestSigningInput,
+  type Authorization,
+  type PaymentRequest,
+  type SignedOffer,
+  type SignedOfferRequest,
+} from "./schemas.js";
 import { checkFreshness } from "./time.js";
 
 // Identity binding lives here, not in the schemas: a mismatch between who signed
@@ -28,6 +34,31 @@ export function verifyOfferEnvelope(offer: SignedOffer, merchantAgent: RegistryA
   }
   if (checkFreshness(offer.payload, now) !== "ok" || now > offer.payload.holdUntil) {
     throw new HandshakeError("OFFER_EXPIRED", "offer expired or hold released");
+  }
+}
+
+/**
+ * POST /offers. AGENT_SIG_INVALID unless the request is signed by `consumerAgent`'s key, names
+ * that agent, is addressed to `merchantId` (no replay at another merchant) and is fresh.
+ * The caller then records the nonce once.
+ */
+export function verifyOfferRequestEnvelope(
+  req: SignedOfferRequest,
+  consumerAgent: RegistryAgent,
+  merchantId: string,
+  now: number,
+): void {
+  if (req.kid !== req.payload.consumerAgentId || req.kid !== consumerAgent.id) {
+    throw new HandshakeError("AGENT_SIG_INVALID", "offer request kid does not match the named consumer agent");
+  }
+  if (!verifyEnvelope(req, consumerAgent.publicKey, consumerAgent.id, "offer_request")) {
+    throw new HandshakeError("AGENT_SIG_INVALID", "offer request signature invalid");
+  }
+  if (req.payload.merchantId !== merchantId) {
+    throw new HandshakeError("AGENT_SIG_INVALID", "offer request addressed to another merchant");
+  }
+  if (checkFreshness(req.payload, now) !== "ok") {
+    throw new HandshakeError("AGENT_SIG_INVALID", "offer request expired or not yet valid");
   }
 }
 

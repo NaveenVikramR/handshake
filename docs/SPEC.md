@@ -38,6 +38,10 @@ All amounts are integer minor units. Currency `USD` (sandbox).
 ```
 Merchant stores `offerHash`; stock is held until `holdUntil` (10 min). `totalMinor` > 0 and every `qty` > 0. An offer is rejected with `OFFER_EXPIRED` once `now` passes `exp` (+ skew) or `holdUntil`. The envelope `kid` must equal `merchantAgentId`, else `OFFER_SIG_INVALID`.
 
+**Offer request** (`POST /offers`, signed by a consumer agent, D18): envelope `{payload, sig, kid}` over
+`{ "v":1, "type":"offer_request", "consumerAgentId":"agt_c_…", "merchantId":"mer_…", "items":[{"sku":"RICE-2KG","qty":1}], "iat":…, "exp":…, "nonce":"…" }`
+with `exp − iat` ≤ 120 s and unique skus. The request carries no prices: names and `unitMinor` come from `products`. Checks in order: shape → `SCHEMA_INVALID`; `kid` an active consumer agent in the registry → `AGENT_UNTRUSTED`; signature, `kid` = `consumerAgentId`, `merchantId` = this merchant, fresh → `AGENT_SIG_INVALID`; nonce unused → `APPROVAL_REPLAY`; `qty` ≤ 10 per line → `SCHEMA_INVALID`; per agent fewer than 20 open offers and at most 40 units held → `RATE_LIMITED`; known skus → `SCHEMA_INVALID`; stock for every line → `OUT_OF_STOCK`. Stock, nonce and offer are written in one transaction. The expiry job flips `open → expired` and returns stock once `now > holdUntil`; the gate (M7) flips `open → used`; both by compare-and-set, so a hold is released or consumed exactly once.
+
 ### 4.2 Intent mandate (standing permission, approved by passkey)
 ```json
 { "v":1, "type":"intent_mandate", "mandateId":"man_…", "userId":"usr_…", "consumerAgentId":"agt_c_…",
@@ -100,6 +104,8 @@ Approval proof = WebAuthn assertion whose challenge = `hash(cartApproval)`. `exp
 
 Every decision is appended to `decisions[]` with check id, result and reason, and streamed to the dashboard.
 
+Outside the gate, offer creation (§4.1) also returns `OUT_OF_STOCK` (409) and `RATE_LIMITED` (429).
+
 ## 7. PayPal
 ### 7.1 Order state machine (merchant)
 `offered → authorized → captured → (refunded)`; `authorized → voided`; any → `failed`. Transitions only via webhook-confirmed or API-confirmed events. Store raw PayPal ids.
@@ -121,7 +127,8 @@ Verify via PayPal verify-webhook-signature; dedupe on event id (`paypal_events` 
 
 ## 10. HTTP API
 Merchant :4001 — `GET /.well-known/agent.json`, `GET /catalog`, `POST /offers`, `POST /payments`, `POST /orders/:id/fulfil`, `POST /webhooks/paypal`, `GET /dashboard/stream` (SSE), `POST /assistant` (shopkeeper).
-Consumer :4002 — `POST /passkeys/register/{options,verify}`, `POST /mandates/{options,verify}`, `POST /chat` (SSE agent loop), `GET /approvals/:id`, `POST /approvals/:id/verify`, `GET /activity`.
+`GET /.well-known/agent.json` is an unsigned discovery hint (ids, name, endpoints; no public key). Consumers verify keys and ids against the registry, never the card.
+Consumer :4002 — `POST /passkeys/register/{options,verify}`, `POST /mandates/{options,verify}` (every scoped merchant must be active in the registry, else `MERCHANT_UNTRUSTED`; the response names them), `POST /chat` (SSE agent loop), `GET /approvals/:id`, `POST /approvals/:id/verify`, `GET /activity`.
 
 ## 11. Attack model (each must be a test in `tests/attacks`)
 Amount changed after approval · address changed after approval · item swapped · currency swapped · replayed approval · expired approval · approval for another merchant · fake merchant agent (unknown key) · look-alike merchant id · merchant price change after offer · offer reuse · unknown consumer agent · forged agent sig · mandate over per-order limit · mandate over period limit (split orders) · out-of-scope merchant/category · prompt injection in item note / address line / merchant reply · duplicate requestId · duplicate webhook · forged webhook · UV flag missing · signCount rollback · wrong origin/rpId. Target: 0 unauthorized authorizations, 0 duplicate charges.

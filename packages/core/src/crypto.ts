@@ -80,6 +80,11 @@ function loadPublicKey(spki: string): KeyObject {
   return key;
 }
 
+/** The SPKI public key (base64url) for a PKCS8 private key, so a registry row can be checked against a configured key. */
+export function publicKeyFromPrivate(pkcs8: string): string {
+  return b64urlEncode(createPublicKey(loadPrivateKey(pkcs8)).export({ format: "der", type: "spki" }));
+}
+
 /** Ed25519 signature over JCS(payload), base64url. */
 export function signPayload(payload: unknown, privateKey: string): string {
   return b64urlEncode(nodeSign(null, jcsBytes(payload), loadPrivateKey(privateKey)));

@@ -17,6 +17,7 @@
     "db:generate": "pnpm --filter @handshake/db generate",
     "db:migrate": "pnpm --filter @handshake/db migrate",
     "db:seed": "pnpm --filter @handshake/db seed",
+    "keys:gen": "tsx scripts/keys-gen.ts",
     "paypal:smoke": "pnpm --filter @handshake/merchant paypal:smoke"
   },
   "devDependencies": {

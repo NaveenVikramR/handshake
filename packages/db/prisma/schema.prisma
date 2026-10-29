@@ -128,3 +128,84 @@ model MandateSpend {
   @@id([mandateId, periodStart])
   @@map("mandate_spend")
 }
+
+// ── M5 registry + merchant ──────────────────────────────────────────────────
+
+/// Trust registry (SPEC §2, pitched as PayPal-operated): merchant ↔ PayPal merchant id.
+model RegistryMerchant {
+  id               String @id
+  name             String
+  paypalMerchantId String @unique @map("paypal_merchant_id")
+  status           String @default("active") // active | suspended
+
+  agents RegistryAgent[]
+
+  @@map("registry_merchants")
+}
+
+/// Trust registry: agent public keys. A merchant agent belongs to exactly one merchant.
+model RegistryAgent {
+  id         String  @id
+  role       String // merchant | consumer
+  /// Ed25519 SPKI DER, base64url.
+  publicKey  String  @map("public_key")
+  status     String  @default("active") // active | suspended
+  merchantId String? @map("merchant_id")
+
+  merchant RegistryMerchant? @relation(fields: [merchantId], references: [id])
+  offers   Offer[]
+
+  @@map("registry_agents")
+}
+
+/// Catalog. Prices come only from here, never from a request or an LLM (rule 2).
+model Product {
+  sku        String @id
+  name       String
+  category   String
+  priceMinor Int    @map("price_minor")
+  stock      Int
+
+  holds StockHold[]
+
+  @@map("products")
+}
+
+/// A signed offer (SPEC §4.1). open → used (gate, M7) | expired (hold job); each by compare-and-set.
+model Offer {
+  id          String   @id
+  /// The consumer agent that asked for it; caps open offers per agent.
+  agentId     String   @map("agent_id")
+  payloadJson Json     @map("payload_json")
+  hash        String   @unique
+  status      String   @default("open") // open | used | expired
+  holdUntil   DateTime @map("hold_until")
+  createdAt   DateTime @default(now()) @map("created_at")
+
+  agent RegistryAgent @relation(fields: [agentId], references: [id])
+  holds StockHold[]
+
+  @@index([agentId, status])
+  @@index([status, holdUntil])
+  @@map("offers")
+}
+
+model StockHold {
+  offerId String @map("offer_id")
+  sku     String
+  qty     Int
+
+  offer   Offer   @relation(fields: [offerId], references: [id])
+  product Product @relation(fields: [sku], references: [sku])
+
+  @@id([offerId, sku])
+  @@map("stock_holds")
+}
+
+/// Signed-payload nonces seen by this service (offer requests now, payment payloads in M7).
+model UsedNonce {
+  nonce String   @id
+  exp   DateTime
+
+  @@map("used_nonces")
+}

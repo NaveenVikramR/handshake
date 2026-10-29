@@ -2,6 +2,9 @@ import { existsSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import { createDb } from "@handshake/db";
 import { createApp } from "./app.js";
+import { startHoldExpiry } from "./offers/expiry.js";
+import { loadSelf } from "./offers/service.js";
+import { prismaOfferStore } from "./offers/store.js";
 import { createPayPalClient } from "./paypal/client.js";
 import { prismaWebhookStore } from "./webhooks/store.js";
 
@@ -21,11 +24,21 @@ const paypal = createPayPalClient({
   clientSecret: process.env.PAYPAL_CLIENT_SECRET ?? "",
 });
 
+const agentId = process.env.MERCHANT_AGENT_ID ?? "";
+const agentKey = process.env.MERCHANT_AGENT_PRIVATE_KEY ?? "";
+if (!agentId || !agentKey) throw new Error("MERCHANT_AGENT_ID and MERCHANT_AGENT_PRIVATE_KEY must be set");
+
+const db = createDb();
+const offerStore = prismaOfferStore(db);
+const self = await loadSelf(offerStore, agentId, agentKey);
+startHoldExpiry(offerStore, Date.now);
+
 const demoSecret = process.env.DEMO_SECRET;
 const app = createApp({
-  webhooks: { paypal, store: prismaWebhookStore(createDb()), webhookId },
+  webhooks: { paypal, store: prismaWebhookStore(db), webhookId },
+  offers: { store: offerStore, self, now: Date.now },
   demoMode,
   ...(demoSecret === undefined ? {} : { demoSecret }),
 });
 const port = Number(process.env.PORT ?? 4001);
-app.listen(port, () => console.log(`merchant listening on :${port}${demoMode ? " (DEMO_MODE)" : ""}`));
+app.listen(port, () => console.log(`merchant ${self.merchantId} listening on :${port}${demoMode ? " (DEMO_MODE)" : ""}`));

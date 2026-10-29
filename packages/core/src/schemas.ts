@@ -4,6 +4,7 @@ import { z } from "zod";
 // unsigned or unhashed can ride along with a payload.
 
 export const MAX_CART_APPROVAL_TTL_S = 300;
+export const MAX_OFFER_REQUEST_TTL_S = 120;
 
 const b64url = z.string().regex(/^[A-Za-z0-9_-]+$/, "base64url");
 /** base64url SHA-256 digest (32 bytes, 43 chars). */
@@ -125,6 +126,26 @@ export const CartApproval = z
   .refine(totalMatchesItems, { message: "totalMinor != sum of items", path: ["totalMinor"] });
 export type CartApproval = z.infer<typeof CartApproval>;
 
+/** A consumer agent asks a merchant for an offer (SPEC §4.1). Signed, so only registered agents can hold stock. */
+export const OfferRequest = z
+  .strictObject({
+    ...header,
+    type: z.literal("offer_request"),
+    consumerAgentId: ConsumerAgentId,
+    merchantId: MerchantId,
+    items: z
+      .array(z.strictObject({ sku: Item.shape.sku, qty: Item.shape.qty }))
+      .min(1)
+      .max(50)
+      .refine((ls) => new Set(ls.map((l) => l.sku)).size === ls.length, { message: "duplicate sku" }),
+  })
+  .refine(expAfterIat, { message: "exp must be after iat", path: ["exp"] })
+  .refine((p) => p.exp - p.iat <= MAX_OFFER_REQUEST_TTL_S, {
+    message: `offer request lifetime exceeds ${MAX_OFFER_REQUEST_TTL_S}s`,
+    path: ["exp"],
+  });
+export type OfferRequest = z.infer<typeof OfferRequest>;
+
 export const WebAuthnAssertion = z.strictObject({
   credentialId: b64url,
   authenticatorData: b64url,
@@ -139,6 +160,10 @@ export const signedEnvelope = <P extends z.ZodType, K extends z.ZodType<string>>
 // Shape only. kid ↔ payload.merchantAgentId is checked by verifyOfferEnvelope (OFFER_SIG_INVALID).
 export const SignedOffer = signedEnvelope(Offer, MerchantAgentId);
 export type SignedOffer = z.infer<typeof SignedOffer>;
+
+// Shape only. kid ↔ payload.consumerAgentId is checked by verifyOfferRequestEnvelope (AGENT_SIG_INVALID).
+export const SignedOfferRequest = signedEnvelope(OfferRequest, ConsumerAgentId);
+export type SignedOfferRequest = z.infer<typeof SignedOfferRequest>;
 
 export const PasskeyAuthorization = z.strictObject({
   kind: z.literal("passkey"),

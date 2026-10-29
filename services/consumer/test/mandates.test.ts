@@ -12,7 +12,14 @@ const shipTo = { name: "Alice", line1: "1 Main St", city: "Springfield", postalC
 
 function setup() {
   const clock = { t: T0 };
-  const ctx: AppContext = { store: memoryWalletStore(), webauthn, consumerAgentId: "agt_c_wallet", now: () => clock.t };
+  const store = memoryWalletStore({
+    merchants: [
+      { id: "mer_corner", name: "Corner Grocery", status: "active" },
+      { id: "mer_bakery", name: "Bakery", status: "active" },
+      { id: "mer_gone", name: "Suspended Shop", status: "suspended" },
+    ],
+  });
+  const ctx: AppContext = { store, webauthn, consumerAgentId: "agt_c_wallet", now: () => clock.t };
   return { ctx, app: createApp(ctx), clock };
 }
 type Setup = ReturnType<typeof setup>;
@@ -104,6 +111,27 @@ describe("POST /mandates/options", () => {
     const res = await options(s, userId, patch);
     expect(res.status).toBe(400);
     expect(res.body).toEqual({ error: "SCHEMA_INVALID" });
+  });
+
+  it("returns the registry names of the merchants in scope", async () => {
+    const s = setup();
+    const { userId } = await register(s);
+    const res = await options(s, userId, { merchants: ["mer_bakery", "mer_corner"] });
+    expect(res.body.merchants).toEqual([
+      { id: "mer_bakery", name: "Bakery" },
+      { id: "mer_corner", name: "Corner Grocery" },
+    ]);
+  });
+
+  it.each([
+    ["unknown merchant", ["mer_corner", "mer_nobody"]],
+    ["suspended merchant", ["mer_gone"]],
+  ])("%s → 401 MERCHANT_UNTRUSTED", async (_n, merchants) => {
+    const s = setup();
+    const { userId } = await register(s);
+    const res = await options(s, userId, { merchants });
+    expect(res.status).toBe(401);
+    expect(res.body).toEqual({ error: "MERCHANT_UNTRUSTED" });
   });
 
   it("refuses a user without a passkey", async () => {

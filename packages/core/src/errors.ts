@@ -20,6 +20,9 @@ export const ERROR_CODES = [
   "STEP_UP_REQUIRED",
   "RISK_BLOCKED",
   "PAYPAL_ERROR",
+  // Offer creation (POST /offers), not gate steps.
+  "OUT_OF_STOCK",
+  "RATE_LIMITED",
 ] as const;
 
 export type ErrorCode = (typeof ERROR_CODES)[number];
@@ -46,6 +49,8 @@ const HTTP_STATUS: Record<ErrorCode, number> = {
   STEP_UP_REQUIRED: 403,
   RISK_BLOCKED: 403,
   PAYPAL_ERROR: 502,
+  OUT_OF_STOCK: 409,
+  RATE_LIMITED: 429,
 };
 
 export class HandshakeError extends Error {
