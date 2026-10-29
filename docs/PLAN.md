@@ -27,8 +27,8 @@ Accept: mocked-fetch tests + sandbox smoke pass.
 
 ## M3 Passkeys — Sun 1 Nov  (SPEC §4.3, §6 step 6a)
 - [ ] register/authenticate endpoints; challenge = `hash(payload)`
-- [ ] fake authenticator test helper (P-256) in `packages/core/test`
-- [ ] tests: UV missing, signCount rollback, wrong origin, wrong challenge
+- [x] fake authenticator test helper (P-256) in `packages/core/test`
+- [x] tests: UV missing, signCount rollback, wrong origin, wrong challenge
 Accept: real phone approval succeeds; all negative tests fail closed.
 
 ## M4 Mandates — Mon 2 Nov  (SPEC §4.2, §6 step 6b)
@@ -60,6 +60,7 @@ Accept: chat request ends in a receipt; LLM cannot change amounts (test).
 - [ ] Single `verifyPaymentRequest(req, ctx)` wrapper that runs every gate check in SPEC §6 order; route handlers call only this
 - [ ] Payee binding: `offer.merchantAgentId`, `merchantId` and `paypalMerchantId` must equal this merchant's own configured ids, else `OFFER_SIG_INVALID`
 - [ ] M2 follow-ups: `onOrderEvent` refuses to fulfil/capture/refund on `meta.simulated` events; reconciliation table for webhook state conflicts (D15); one stored `PayPal-Request-Id` per order + operation; partial refund vs full and `PAYMENT.CAPTURE.REVERSED` tracking; rate-limit `/webhooks/paypal` + cheap pre-checks before verify
+- [ ] M3 follow-ups: gate 6a uses core `verifyApprovalAssertion` against `registry_passkeys` and compare-and-sets its `signCount`; step 7 records the payload nonce atomically before any PayPal call (synced passkeys always report 0, so the nonce is the only replay guard); attack test for a replayed passkey approval
 Accept: happy path end-to-end in sandbox.
 
 ## M8 Web UI — Fri 6 Nov
@@ -77,6 +78,7 @@ Accept: 0 unauthorized authorizations, 0 duplicate charges.
 - [ ] demo seed script, reset button, simulate-webhook button
 - [ ] error messages human-readable on dashboard
 - [ ] Low findings: `signEnvelope` runtime type check, bound `holdUntil` (≤ 15 min from `iat`), generic error messages in HTTP responses (detail only in decisions log)
+- [ ] M3 low findings: rate-limit `/passkeys/register/options` (each call inserts a user row) or create the user only on verify; map an approval that expires mid-verify to `APPROVAL_EXPIRED` instead of `APPROVAL_REPLAY`
 
 ## M11 Ship — Mon 9 Nov
 - [ ] Render deploy (3 services) pointing at the Neon `main` branch; migrations applied there; health checks

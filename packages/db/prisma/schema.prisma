@@ -1,4 +1,4 @@
-// Skeleton for M0. Remaining SPEC §9 tables arrive with the milestones that use them.
+// SPEC §9 tables, added by the milestone that first uses them.
 
 generator client {
   provider     = "prisma-client"
@@ -17,4 +17,77 @@ model PaypalEvent {
   receivedAt  DateTime @default(now()) @map("received_at")
 
   @@map("paypal_events")
+}
+
+// ── M3 passkeys ─────────────────────────────────────────────────────────────
+
+model User {
+  id          String   @id
+  displayName String   @map("display_name")
+  createdAt   DateTime @default(now()) @map("created_at")
+
+  passkeys   RegistryPasskey[]
+  approvals  Approval[]
+  challenges RegistrationChallenge[]
+
+  @@map("users")
+}
+
+/// Trust registry (D5). `signCount` is the merchant gate's last-seen count;
+/// the wallet keeps its own in wallet_credentials (D16).
+model RegistryPasskey {
+  credentialId String   @id @map("credential_id")
+  userId       String   @map("user_id")
+  /// COSE public key, base64url.
+  publicKey    String   @map("public_key")
+  signCount    BigInt   @default(0) @map("sign_count")
+  transports   String[]
+  createdAt    DateTime @default(now()) @map("created_at")
+
+  user   User              @relation(fields: [userId], references: [id])
+  wallet WalletCredential?
+
+  @@index([userId])
+  @@map("registry_passkeys")
+}
+
+/// Consumer service's own last-seen sign count per credential (D16).
+model WalletCredential {
+  credentialId String @id @map("credential_id")
+  signCount    BigInt @default(0) @map("sign_count")
+
+  passkey RegistryPasskey @relation(fields: [credentialId], references: [credentialId])
+
+  @@map("wallet_credentials")
+}
+
+/// Pending passkey registration; deleted on first use.
+model RegistrationChallenge {
+  userId    String   @id @map("user_id")
+  challenge String
+  expiresAt DateTime @map("expires_at")
+
+  user User @relation(fields: [userId], references: [id])
+
+  @@map("registration_challenges")
+}
+
+/// A cart the human must approve with a passkey. challenge = hash(payloadJson).
+model Approval {
+  id            String    @id
+  userId        String    @map("user_id")
+  payloadJson   Json      @map("payload_json")
+  /// Unique: one assertion can never approve two approvals (same cart and nonce).
+  hash          String    @unique
+  status        String    @default("pending") // pending | approved
+  expiresAt     DateTime  @map("expires_at")
+  credentialId  String?   @map("credential_id")
+  assertionJson Json?     @map("assertion_json")
+  approvedAt    DateTime? @map("approved_at")
+  createdAt     DateTime  @default(now()) @map("created_at")
+
+  user User @relation(fields: [userId], references: [id])
+
+  @@index([userId])
+  @@map("approvals")
 }

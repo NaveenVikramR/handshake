@@ -20,6 +20,9 @@ export interface WebhookEventStore<Tx = unknown> {
 // concurrent second delivery blocks on the index until the first commits, then
 // inserts nothing. Only that zero-row insert means "duplicate"; a unique
 // violation raised inside `apply` propagates as a failure, not a duplicate.
+// Neon over the pooler can take >2 s (Prisma's default) to hand out a connection on a cold start.
+const TX = { maxWait: 10_000, timeout: 15_000 };
+
 export function prismaWebhookStore(db: PrismaClient): WebhookEventStore<Prisma.TransactionClient> {
   return {
     async record({ eventId, type, payload }, apply) {
@@ -31,7 +34,7 @@ export function prismaWebhookStore(db: PrismaClient): WebhookEventStore<Prisma.T
         if (count === 0) return "duplicate";
         await apply(tx);
         return "new";
-      });
+      }, TX);
     },
   };
 }
