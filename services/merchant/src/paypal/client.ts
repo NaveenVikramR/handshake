@@ -60,6 +60,12 @@ const Refund = z.object({ id: z.string().min(1), status: z.string() });
 const Tracked = z.object({ id: z.string().min(1), status: z.string() });
 const Token = z.object({ access_token: z.string().min(1), expires_in: z.number().int().positive() });
 const VerifyResult = z.object({ verification_status: z.string() });
+const Webhook = z.object({
+  id: z.string().min(1),
+  url: z.string(),
+  event_types: z.array(z.object({ name: z.string() })).optional(),
+});
+const WebhookList = z.object({ webhooks: z.array(Webhook).optional() });
 const ErrorBody = z.object({
   name: z.string().optional(),
   details: z.array(z.object({ issue: z.string().optional() })).optional(),
@@ -70,6 +76,7 @@ export type PayPalAuthorization = z.infer<typeof Authorization>;
 export type PayPalCapture = z.infer<typeof Capture>;
 export type PayPalRefund = z.infer<typeof Refund>;
 export type PayPalVault = z.infer<typeof Vault>;
+export type PayPalWebhook = z.infer<typeof Webhook>;
 
 export interface CreateOrderInput {
   requestId: string;
@@ -335,6 +342,19 @@ export function createPayPalClient(config: PayPalConfig) {
         carrier: input.carrier,
         ...(input.carrierNameOther ? { carrier_name_other: input.carrierNameOther } : {}),
         notify_payer: input.notifyPayer ?? false,
+      });
+    },
+
+    /** Webhooks registered for this REST app. */
+    async listWebhooks(): Promise<PayPalWebhook[]> {
+      return (await call(WebhookList, "GET", "/v1/notifications/webhooks")).webhooks ?? [];
+    },
+
+    /** Subscribes `url` to `eventTypes`. Setup only (scripts/paypal-webhook-create.ts). */
+    async createWebhook(url: string, eventTypes: string[], requestId: string): Promise<PayPalWebhook> {
+      return call(Webhook, "POST", "/v1/notifications/webhooks", requestId, {
+        url,
+        event_types: eventTypes.map((name) => ({ name })),
       });
     },
 

@@ -18,7 +18,8 @@
     "db:migrate": "pnpm --filter @handshake/db migrate",
     "db:seed": "pnpm --filter @handshake/db seed",
     "keys:gen": "tsx scripts/keys-gen.ts",
-    "paypal:smoke": "pnpm --filter @handshake/merchant paypal:smoke"
+    "paypal:smoke": "pnpm --filter @handshake/merchant paypal:smoke",
+    "paypal:webhook": "pnpm --filter @handshake/merchant paypal:webhook"
   },
   "devDependencies": {
     "@eslint/js": "10.0.1",

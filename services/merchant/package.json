@@ -7,6 +7,7 @@
     "dev": "tsx watch src/server.ts",
     "start": "tsx src/server.ts",
     "paypal:smoke": "tsx scripts/paypal-smoke.ts",
+    "paypal:webhook": "tsx scripts/paypal-webhook-create.ts",
     "typecheck": "tsc -p tsconfig.json"
   },
   "dependencies": {
