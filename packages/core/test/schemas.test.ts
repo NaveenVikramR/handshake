@@ -1,75 +1,7 @@
 import { describe, expect, it } from "vitest";
-import { generateEd25519KeyPair, hash, randomNonce, signEnvelope, signPayload, verifyPayload } from "../src/crypto.js";
-import {
-  CartApproval,
-  IntentMandate,
-  Offer,
-  PaymentRequest,
-  Receipt,
-  paymentRequestSigningInput,
-  type Offer as OfferT,
-} from "../src/schemas.js";
-
-const iat = 1_762_000_000;
-const items = [
-  { sku: "RICE-2KG", name: "Rice 2 kg", qty: 2, unitMinor: 499 },
-  { sku: "DET-1L", name: "Detergent 1 L", qty: 1, unitMinor: 350 },
-];
-const shipToHash = hash({ line1: "1 Main St" });
-
-const offer: OfferT = {
-  v: 1,
-  type: "offer",
-  offerId: "off_1",
-  merchantId: "mer_corner",
-  merchantAgentId: "agt_m_corner",
-  paypalMerchantId: "ABCD1234EFGH5",
-  items,
-  totalMinor: 1348,
-  currency: "USD",
-  holdUntil: iat + 600,
-  iat,
-  exp: iat + 600,
-  nonce: randomNonce(),
-};
-
-const cart = {
-  v: 1,
-  type: "cart_approval",
-  offerId: "off_1",
-  offerHash: hash(offer),
-  merchantId: "mer_corner",
-  items,
-  totalMinor: 1348,
-  currency: "USD",
-  shipToHash,
-  consumerAgentId: "agt_c_alice",
-  userId: "usr_alice",
-  iat,
-  exp: iat + 300,
-  nonce: randomNonce(),
-};
-
-const mandate = {
-  v: 1,
-  type: "intent_mandate",
-  mandateId: "man_1",
-  userId: "usr_alice",
-  consumerAgentId: "agt_c_alice",
-  scope: { merchants: ["mer_corner"], categories: ["grocery"] },
-  limits: { perOrderMinor: 3000, periodMinor: 8000, period: "week" },
-  shipToHash,
-  iat,
-  exp: iat + 7 * 86400,
-  nonce: randomNonce(),
-};
-
-const assertion = {
-  credentialId: "Y3JlZA",
-  authenticatorData: "YXV0aA",
-  clientDataJSON: "Y2xpZW50",
-  signature: "c2ln",
-};
+import { generateEd25519KeyPair, hash, signEnvelope, signPayload } from "../src/crypto.js";
+import { CartApproval, IntentMandate, Offer, PaymentRequest, Receipt } from "../src/schemas.js";
+import { assertion, cart, iat, items, mandate, offer } from "./fixtures.js";
 
 describe("Offer", () => {
   it("accepts a valid offer", () => {
@@ -89,6 +21,8 @@ describe("Offer", () => {
     ["short nonce", { nonce: "abc" }],
     ["exp before iat", { exp: iat - 1 }],
     ["no items", { items: [], totalMinor: 0 }],
+    ["zero total", { items: [{ ...items[0], unitMinor: 0 }], totalMinor: 0 }],
+    ["negative qty", { items: [{ ...items[0], qty: -1 }], totalMinor: -499 }],
     ["zero qty", { items: [{ ...items[0], qty: 0 }], totalMinor: 0 }],
     ["string amount", { totalMinor: "1348" }],
   ])("rejects %s", (_name, patch) => {
@@ -135,6 +69,7 @@ describe("CartApproval", () => {
 
   it.each([
     ["lifetime > 5 min", { exp: iat + 301 }],
+    ["zero total", { items: [{ ...items[0], unitMinor: 0 }], totalMinor: 0 }],
     ["total tampered", { totalMinor: 1 }],
     ["bad offerHash", { offerHash: "short" }],
     ["unknown key", { tip: 100 }],
@@ -156,14 +91,6 @@ describe("PaymentRequest", () => {
   it("accepts the passkey and mandate variants", () => {
     expect(PaymentRequest.safeParse(build({ kind: "passkey", cartApproval: cart, assertion })).success).toBe(true);
     expect(PaymentRequest.safeParse(build({ kind: "mandate", mandate, assertion, cart })).success).toBe(true);
-  });
-
-  it("agentSig covers {requestId, offer, authorization} and detects tamper", () => {
-    const req = PaymentRequest.parse(build({ kind: "passkey", cartApproval: cart, assertion }));
-    const input = paymentRequestSigningInput(req);
-    expect(verifyPayload(input, req.agentSig, consumer.publicKey)).toBe(true);
-    const tampered = { ...input, requestId: "req_2" };
-    expect(verifyPayload(tampered, req.agentSig, consumer.publicKey)).toBe(false);
   });
 
   it.each([
@@ -211,34 +138,12 @@ describe("Receipt", () => {
   });
 });
 
-describe("identity binding", () => {
-  const merchant = generateEd25519KeyPair();
-  const consumer = generateEd25519KeyPair();
-
-  function build(authorization: unknown, kid = "agt_c_alice", offerKid = "agt_m_corner") {
-    const body = { requestId: "req_1", offer: signEnvelope(offer, merchant.privateKey, offerKid), authorization };
-    return { ...body, agentSig: signPayload(body, consumer.privateKey), kid };
-  }
-
-  it("rejects an offer signed by a different merchant agent than it names", () => {
-    const req = build({ kind: "passkey", cartApproval: cart, assertion }, "agt_c_alice", "agt_m_other");
-    expect(PaymentRequest.safeParse(req).success).toBe(false);
-  });
-
-  it("rejects a passkey approval re-wrapped by another consumer agent", () => {
-    const req = build({ kind: "passkey", cartApproval: cart, assertion }, "agt_c_mallory");
-    expect(PaymentRequest.safeParse(req).success).toBe(false);
-  });
-
-  it("rejects a mandate whose agent or user differs from the cart", () => {
-    const otherAgent = { ...mandate, consumerAgentId: "agt_c_mallory" };
-    expect(PaymentRequest.safeParse(build({ kind: "mandate", mandate: otherAgent, assertion, cart })).success).toBe(
-      false,
-    );
-    const otherUser = { ...mandate, userId: "usr_bob" };
-    expect(PaymentRequest.safeParse(build({ kind: "mandate", mandate: otherUser, assertion, cart })).success).toBe(
-      false,
-    );
+describe("shape only — identity binding is not a schema concern", () => {
+  it("parses a request whose kids mismatch (verify.ts rejects it with *_SIG_INVALID)", () => {
+    const m = generateEd25519KeyPair();
+    const env = signEnvelope(offer, m.privateKey, "agt_m_other");
+    const body = { requestId: "req_1", offer: env, authorization: { kind: "passkey", cartApproval: cart, assertion } };
+    expect(PaymentRequest.safeParse({ ...body, agentSig: "c2ln", kid: "agt_c_mallory" }).success).toBe(true);
   });
 
   it("rejects a non-canonical hash spelling", () => {

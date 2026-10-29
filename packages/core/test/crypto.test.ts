@@ -118,22 +118,36 @@ describe("signed envelope", () => {
   it("signs and verifies {payload, sig, kid}", () => {
     const env = signEnvelope(payload, keys.privateKey, kid);
     expect(Object.keys(env).sort()).toEqual(["kid", "payload", "sig"]);
-    expect(verifyEnvelope(env, keys.publicKey, kid)).toBe(true);
+    expect(verifyEnvelope(env, keys.publicKey, kid, "offer")).toBe(true);
   });
 
   it("rejects tampered payload, swapped sig or mismatched kid", () => {
     const env = signEnvelope(payload, keys.privateKey, kid);
-    expect(verifyEnvelope({ ...env, payload: { ...payload, totalMinor: 1 } }, keys.publicKey, kid)).toBe(false);
+    expect(verifyEnvelope({ ...env, payload: { ...payload, totalMinor: 1 } }, keys.publicKey, kid, "offer")).toBe(
+      false,
+    );
     const other = signEnvelope({ ...payload, totalMinor: 1 }, keys.privateKey, kid);
-    expect(verifyEnvelope({ ...env, sig: other.sig }, keys.publicKey, kid)).toBe(false);
-    expect(verifyEnvelope({ ...env, kid: "agt_m_evil" }, keys.publicKey, kid)).toBe(false);
-    expect(verifyEnvelope(env, keys.publicKey, "agt_m_evil")).toBe(false);
+    expect(verifyEnvelope({ ...env, sig: other.sig }, keys.publicKey, kid, "offer")).toBe(false);
+    expect(verifyEnvelope({ ...env, kid: "agt_m_evil" }, keys.publicKey, kid, "offer")).toBe(false);
+    expect(verifyEnvelope(env, keys.publicKey, "agt_m_evil", "offer")).toBe(false);
+  });
+
+  it("enforces domain separation by payload type", () => {
+    const mandate = signEnvelope({ ...payload, type: "intent_mandate" }, keys.privateKey, kid);
+    expect(verifyEnvelope(mandate, keys.publicKey, kid, "intent_mandate")).toBe(true);
+    expect(verifyEnvelope(mandate, keys.publicKey, kid, "offer")).toBe(false);
+    const env = signEnvelope(payload, keys.privateKey, kid);
+    expect(verifyEnvelope(env, keys.publicKey, kid, "cart_approval")).toBe(false);
+    const untyped = { payload: { totalMinor: 499 }, sig: signPayload({ totalMinor: 499 }, keys.privateKey), kid };
+    expect(verifyEnvelope(untyped, keys.publicKey, kid, "offer")).toBe(false);
+    const arr = { payload: [], sig: signPayload([], keys.privateKey), kid };
+    expect(verifyEnvelope(arr, keys.publicKey, kid, "offer")).toBe(false);
   });
 
   it("fails closed on non-string sig/kid", () => {
     const env = signEnvelope(payload, keys.privateKey, kid);
     const bad = { ...env, sig: 1 } as unknown as typeof env;
-    expect(verifyEnvelope(bad, keys.publicKey, kid)).toBe(false);
+    expect(verifyEnvelope(bad, keys.publicKey, kid, "offer")).toBe(false);
   });
 });
 
@@ -144,6 +158,6 @@ describe("fail-closed edges", () => {
 
   it("verifyEnvelope returns false for null", () => {
     const { publicKey } = generateEd25519KeyPair();
-    expect(verifyEnvelope(null as never, publicKey, "agt_m_x")).toBe(false);
+    expect(verifyEnvelope(null as never, publicKey, "agt_m_x", "offer")).toBe(false);
   });
 });

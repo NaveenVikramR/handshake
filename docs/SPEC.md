@@ -22,6 +22,8 @@ Non-goals: real AP2 compliance (we are "AP2-inspired"), live money, real third-p
 - Canonical JSON: RFC 8785 (JCS). Implement in `packages/core/src/jcs.ts`; unit-test against the RFC examples.
 - Hash: `hash(x) = base64url(SHA-256(JCS(x)))`.
 - Agent signatures: Ed25519 over `JCS(payload)` bytes, base64url. Signed envelope = `{ payload, sig, kid }` where `kid` = agent id.
+- Domain separation: every signed value carries a `type`. Verifiers name the type they expect and reject any other, so a signature over one payload type never verifies as another.
+- Schemas check shape only (fields, types, ranges, totals that add up). Identity binding (who signed vs. who the payload names) is checked during signature verification and fails with the `*_SIG_INVALID` code for that signature.
 - Every payload carries `v: 1`, `type`, `nonce` (16 random bytes b64url), `iat`, `exp` (unix seconds).
 - Clock skew tolerance: 60 s.
 
@@ -34,7 +36,7 @@ All amounts are integer minor units. Currency `USD` (sandbox).
   "paypalMerchantId":"…", "items":[{"sku":"RICE-2KG","name":"Rice 2 kg","qty":1,"unitMinor":499}],
   "totalMinor":499, "currency":"USD", "holdUntil":1762000000, "iat":…, "exp":…, "nonce":"…" }
 ```
-Merchant stores `offerHash`; stock is held until `holdUntil` (10 min).
+Merchant stores `offerHash`; stock is held until `holdUntil` (10 min). `totalMinor` > 0 and every `qty` > 0. An offer is rejected with `OFFER_EXPIRED` once `now` passes `exp` (+ skew) or `holdUntil`. The envelope `kid` must equal `merchantAgentId`, else `OFFER_SIG_INVALID`.
 
 ### 4.2 Intent mandate (standing permission, approved by passkey)
 ```json
@@ -62,7 +64,7 @@ Approval proof = WebAuthn assertion whose challenge = `hash(cartApproval)`. `exp
                | { "kind":"mandate", "mandate":{…4.2…}, "assertion":{…}, "cart":{…4.3 without user approval…} },
   "agentSig": "…", "kid":"agt_c_…" }
 ```
-`agentSig` = consumer agent Ed25519 over `JCS({requestId, offer, authorization})`.
+`agentSig` = consumer agent Ed25519 over `JCS({type:"payment_request", v:1, requestId, offer, authorization})`. `kid` must equal every `consumerAgentId` the approval names (cartApproval, or mandate and cart), else `AGENT_SIG_INVALID`. On the mandate path `mandate.userId` must equal `cart.userId`, else `MANDATE_INVALID`.
 
 ### 4.5 Receipt (stored by merchant, returned to consumer)
 `{ requestId, offerHash, approvalHash, paypalOrderId, authorizationId, captureId?, status, decisions[], trackingNumber? }`
@@ -87,8 +89,8 @@ Approval proof = WebAuthn assertion whose challenge = `hash(cartApproval)`. `exp
 |---|---|---|
 | 1 | zod schema | `SCHEMA_INVALID` |
 | 2 | `requestId` unseen (else return stored receipt) | `DUPLICATE_REQUEST` (200 with prior receipt) |
-| 3 | consumer agent in registry, active; `agentSig` valid | `AGENT_UNTRUSTED` / `AGENT_SIG_INVALID` |
-| 4 | offer sig is ours, unexpired, unused, matches stored `offerHash` | `OFFER_SIG_INVALID` / `OFFER_EXPIRED` / `OFFER_USED` |
+| 3 | consumer agent in registry, active; `agentSig` valid; `kid` = approved `consumerAgentId` | `AGENT_UNTRUSTED` / `AGENT_SIG_INVALID` |
+| 4 | offer sig is ours (`kid` = `merchantAgentId`, type `offer`), unexpired and before `holdUntil`, unused, matches stored `offerHash` | `OFFER_SIG_INVALID` / `OFFER_EXPIRED` / `OFFER_USED` |
 | 5 | cart items/total/currency exactly equal offer | `CART_MISMATCH` |
 | 6a | passkey: recompute challenge from cartApproval; verify assertion vs registry key; UV flag set; signCount increases; origin/rpId match | `APPROVAL_INVALID` / `APPROVAL_UV_MISSING` / `CART_HASH_MISMATCH` |
 | 6b | mandate: verify mandate assertion; merchant + category in scope; total ≤ perOrder; period spend + total ≤ periodMinor | `MANDATE_INVALID` / `MANDATE_SCOPE` / `MANDATE_LIMIT` |

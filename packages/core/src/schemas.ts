@@ -55,7 +55,7 @@ export const Offer = z
     merchantAgentId: MerchantAgentId,
     paypalMerchantId: z.string().regex(/^[A-Za-z0-9]{1,64}$/, "paypalMerchantId"),
     items: Items,
-    totalMinor: minor,
+    totalMinor: minor.positive(),
     currency: Currency,
     holdUntil: unixSeconds,
   })
@@ -99,7 +99,7 @@ export const CartApproval = z
     offerHash: Hash,
     merchantId: MerchantId,
     items: Items,
-    totalMinor: minor,
+    totalMinor: minor.positive(),
     currency: Currency,
     shipToHash: Hash,
     consumerAgentId: ConsumerAgentId,
@@ -124,12 +124,8 @@ export type WebAuthnAssertion = z.infer<typeof WebAuthnAssertion>;
 export const signedEnvelope = <P extends z.ZodType, K extends z.ZodType<string>>(payload: P, kid: K) =>
   z.strictObject({ payload, sig: b64url, kid });
 
-// The signing key (kid) must be the agent the offer names, or one registered
-// merchant agent could sign offers claiming another merchant's identity.
-export const SignedOffer = signedEnvelope(Offer, MerchantAgentId).refine((e) => e.kid === e.payload.merchantAgentId, {
-  message: "kid != payload.merchantAgentId",
-  path: ["kid"],
-});
+// Shape only. kid ↔ payload.merchantAgentId is checked by verifyOfferEnvelope (OFFER_SIG_INVALID).
+export const SignedOffer = signedEnvelope(Offer, MerchantAgentId);
 export type SignedOffer = z.infer<typeof SignedOffer>;
 
 export const PasskeyAuthorization = z.strictObject({
@@ -148,32 +144,28 @@ export const MandateAuthorization = z.strictObject({
 export const Authorization = z.discriminatedUnion("kind", [PasskeyAuthorization, MandateAuthorization]);
 export type Authorization = z.infer<typeof Authorization>;
 
-// The signing consumer agent must be the one the human approved, so a stolen
-// approval cannot be re-wrapped and signed by a different registered agent.
-const approvedAgents = (a: Authorization) =>
-  a.kind === "passkey" ? [a.cartApproval.consumerAgentId] : [a.mandate.consumerAgentId, a.cart.consumerAgentId];
-
-export const PaymentRequest = z
-  .strictObject({
-    requestId: RequestId,
-    offer: SignedOffer,
-    authorization: Authorization,
-    agentSig: b64url,
-    kid: ConsumerAgentId,
-  })
-  .refine((r) => approvedAgents(r.authorization).every((id) => id === r.kid), {
-    message: "kid != approved consumerAgentId",
-    path: ["kid"],
-  })
-  .refine((r) => r.authorization.kind === "passkey" || r.authorization.mandate.userId === r.authorization.cart.userId, {
-    message: "mandate.userId != cart.userId",
-    path: ["authorization"],
-  });
+// Shape only. kid ↔ approved consumerAgentId is checked by verifyPaymentRequestSig
+// (AGENT_SIG_INVALID); mandate ↔ cart user by checkMandateCartBinding (MANDATE_INVALID).
+export const PaymentRequest = z.strictObject({
+  requestId: RequestId,
+  offer: SignedOffer,
+  authorization: Authorization,
+  agentSig: b64url,
+  kid: ConsumerAgentId,
+});
 export type PaymentRequest = z.infer<typeof PaymentRequest>;
 
-/** The value `agentSig` signs: JCS({requestId, offer, authorization}) — SPEC §4.4. */
+export const PAYMENT_REQUEST_TYPE = "payment_request";
+
+/** The value `agentSig` signs — SPEC §4.4. The type tag keeps it from verifying as any other payload. */
 export function paymentRequestSigningInput(req: Pick<PaymentRequest, "requestId" | "offer" | "authorization">) {
-  return { requestId: req.requestId, offer: req.offer, authorization: req.authorization };
+  return {
+    type: PAYMENT_REQUEST_TYPE,
+    v: 1,
+    requestId: req.requestId,
+    offer: req.offer,
+    authorization: req.authorization,
+  } as const;
 }
 
 export const OrderStatus = z.enum(["offered", "authorized", "captured", "refunded", "voided", "failed"]);

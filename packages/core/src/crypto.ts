@@ -102,7 +102,12 @@ export interface SignedEnvelope<P> {
   kid: string;
 }
 
-export function signEnvelope<P>(payload: P, privateKey: string, kid: string): SignedEnvelope<P> {
+/** Payloads must carry a `type` so verifiers can enforce domain separation. */
+export function signEnvelope<P extends { type: string }>(
+  payload: P,
+  privateKey: string,
+  kid: string,
+): SignedEnvelope<P> {
   return { payload, sig: signPayload(payload, privateKey), kid };
 }
 
@@ -110,11 +115,20 @@ export function signEnvelope<P>(payload: P, privateKey: string, kid: string): Si
  * Verifies the envelope signature against a registry key. The caller resolves
  * `publicKey` from the registry by `kid` and must pass the kid it looked up as
  * `expectedKid`, so an envelope cannot claim one identity and be checked
- * against another's key.
+ * against another's key. `expectedType` gives domain separation: a valid
+ * signature over a payload of any other `type` is rejected.
  */
-export function verifyEnvelope(envelope: SignedEnvelope<unknown>, publicKey: string, expectedKid: string): boolean {
+export function verifyEnvelope(
+  envelope: SignedEnvelope<unknown>,
+  publicKey: string,
+  expectedKid: string,
+  expectedType: string,
+): boolean {
   if (typeof envelope !== "object" || envelope === null) return false;
   if (typeof envelope.kid !== "string" || envelope.kid !== expectedKid) return false;
   if (typeof envelope.sig !== "string") return false;
-  return verifyPayload(envelope.payload, envelope.sig, publicKey);
+  const payload: unknown = envelope.payload;
+  if (typeof payload !== "object" || payload === null || Array.isArray(payload)) return false;
+  if ((payload as { type?: unknown }).type !== expectedType) return false;
+  return verifyPayload(payload, envelope.sig, publicKey);
 }
