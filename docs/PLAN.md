@@ -26,10 +26,9 @@ Accept: ≥25 unit tests pass; tampering any field breaks verification.
 Accept: mocked-fetch tests + sandbox smoke pass.
 
 ## M3 Passkeys — Sun 1 Nov  (SPEC §4.3, §6 step 6a)
-- [ ] register/authenticate endpoints; challenge = `hash(payload)`
 - [x] fake authenticator test helper (P-256) in `packages/core/test`
 - [x] tests: UV missing, signCount rollback, wrong origin, wrong challenge
-Accept: real phone approval succeeds; all negative tests fail closed.
+Accept: all negative tests fail closed (real phone approval moved to M8).
 
 ## M4 Mandates — Mon 2 Nov  (SPEC §4.2, §6 step 6b)
 - [x] create mandate with passkey; store payload, hash, assertion
@@ -67,6 +66,7 @@ Accept: happy path end-to-end in sandbox.
 
 ## M8 Web UI — Fri 6 Nov
 - [ ] wallet (passkey setup, mandates, activity), phone approval page showing exact cart
+- [ ] register/authenticate endpoints; challenge = `hash(payload)` (moved from M3)
 - [ ] `GET /mandates/:id` renders the mandate from server state (as approvals do) so the human approves what was stored, not what the client drew; mandate revocation (status `revoked`, checked by the gate)
 - [ ] merchant dashboard: live SSE feed of agents, decisions, PayPal states
 - [ ] shopkeeper assistant panel via `@paypal/agent-toolkit` (confirm before acting)
