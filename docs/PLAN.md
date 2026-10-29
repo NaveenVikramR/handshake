@@ -36,7 +36,7 @@ Accept: all negative tests fail closed (real phone approval moved to M8).
 Accept: split-order attack blocked.
 
 ## M5 Merchant agent — Tue 3 Nov  (SPEC §4.1, §10)
-- [ ] seed catalog + registry; agent card; `POST /offers` signs offer, holds stock
+- [x] seed catalog + registry; agent card; `POST /offers` signs offer, holds stock
 - [x] Mandate merchants checked against the registry: `/mandates/options` rejects unknown/inactive merchant ids and returns their display names for the wallet to show
 - [x] offer expiry job releases holds
 - [ ] Live sandbox webhook delivered to the deployed merchant service (moved from M2)
