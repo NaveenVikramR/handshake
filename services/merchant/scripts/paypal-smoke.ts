@@ -1,6 +1,7 @@
 // Live sandbox smoke test: OAuth → create AUTHORIZE order → buyer approves → authorize → void.
-//   pnpm paypal:smoke           basic flow
-//   pnpm paypal:smoke --vault   also the M0 vault spike: save the wallet, then pay a 2nd order with no redirect
+//   pnpm paypal:smoke             basic flow
+//   pnpm paypal:smoke --capture   authorize → capture → tracking (sent twice, same id) → refund
+//   pnpm paypal:smoke --vault     also the M0 vault spike: save the wallet, then pay a 2nd order with no redirect
 import { randomUUID } from "node:crypto";
 import { existsSync } from "node:fs";
 import { fileURLToPath } from "node:url";
@@ -22,6 +23,7 @@ const CANCEL_URL = "https://example.com/handshake/cancel";
 const APPROVAL_TIMEOUT_MS = 5 * 60_000;
 
 const spikeVault = process.argv.includes("--vault");
+const captureFlow = process.argv.includes("--capture");
 
 const paypal = createPayPalClient({
   baseUrl: process.env.PAYPAL_BASE_URL ?? "",
@@ -54,6 +56,35 @@ async function authorizeAndVoid(order: PayPalOrder): Promise<PayPalOrder> {
   log("voided", { orderId: order.id, authorizationId: auth.id, status: voided.status });
   console.log(`order ${order.id} … ${voided.status}`);
   return authorized;
+}
+
+async function captureTrackRefund(order: PayPalOrder): Promise<void> {
+  const authorized = await paypal.authorizeOrder(order.id, randomUUID());
+  const auth = firstAuthorization(authorized);
+  if (!auth) throw new Error(`no authorization on order ${order.id}`);
+  log("authorized", { orderId: order.id, authorizationId: auth.id, status: auth.status });
+
+  const captureRequestId = randomUUID();
+  const capture = await paypal.captureAuthorization(auth.id, captureRequestId);
+  log("captured", { captureId: capture.id, status: capture.status });
+  const again = await paypal.captureAuthorization(auth.id, captureRequestId);
+  log("capture replay (same PayPal-Request-Id)", { captureId: again.id, sameCapture: again.id === capture.id });
+
+  const trackRequestId = randomUUID();
+  const tracking = {
+    captureId: capture.id,
+    trackingNumber: `SMOKE${Date.now()}`,
+    carrier: "OTHER",
+    carrierNameOther: "Handshake Demo",
+  };
+  const tracked = await paypal.addTracking(order.id, trackRequestId, tracking);
+  log("tracking added", { id: tracked.id, status: tracked.status });
+  const trackedAgain = await paypal.addTracking(order.id, trackRequestId, tracking);
+  log("tracking replay (same PayPal-Request-Id)", { id: trackedAgain.id, status: trackedAgain.status });
+
+  const refund = await paypal.refundCapture(capture.id, randomUUID());
+  log("refunded", { refundId: refund.id, status: refund.status });
+  console.log(`order ${order.id} … captured ${capture.status}, refund ${refund.status}`);
 }
 
 async function buyerApprovedOrder(saveWallet: boolean): Promise<PayPalOrder> {
@@ -107,13 +138,18 @@ async function vaultSpike(vaultId: string): Promise<void> {
 }
 
 function describe(err: unknown): Record<string, unknown> {
-  if (err instanceof PayPalApiError) return { httpStatus: err.status, debugId: err.debugId, body: err.body };
+  if (err instanceof PayPalApiError) return { httpStatus: err.httpStatus, issue: err.issue, debugId: err.debugId };
   return { error: err instanceof Error ? err.message : String(err) };
 }
 
 async function main(): Promise<void> {
   await paypal.getToken();
   log("oauth token ok");
+
+  if (captureFlow) {
+    await captureTrackRefund(await buyerApprovedOrder(false));
+    return;
+  }
 
   const order = await buyerApprovedOrder(spikeVault);
   const authorized = await authorizeAndVoid(order);

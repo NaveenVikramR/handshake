@@ -20,9 +20,9 @@ Accept: ≥25 unit tests pass; tampering any field breaks verification.
 
 ## M2 PayPal client — Sat 31 Oct  (SPEC §7, docs/PAYPAL.md)
 - [ ] token cache, `createOrderAuthorize`, `capture`, `void`, `refund`, `addTracking`
-- [ ] `PayPal-Request-Id` on every POST; decimal-string conversion at boundary only
+- [x] `PayPal-Request-Id` on every POST; decimal-string conversion at boundary only
 - [ ] webhook verify + dedupe table; `DEMO_MODE` simulate endpoint
-- [ ] order state machine with transition tests
+- [x] order state machine with transition tests
 Accept: mocked-fetch tests + sandbox smoke pass.
 
 ## M3 Passkeys — Sun 1 Nov  (SPEC §4.3, §6 step 6a)
@@ -53,6 +53,7 @@ Accept: chat request ends in a receipt; LLM cannot change amounts (test).
 - [ ] fulfil → capture → tracking; failure/expiry → void; receipt chain
 - [ ] Single `verifyPaymentRequest(req, ctx)` wrapper that runs every gate check in SPEC §6 order; route handlers call only this
 - [ ] Payee binding: `offer.merchantAgentId`, `merchantId` and `paypalMerchantId` must equal this merchant's own configured ids, else `OFFER_SIG_INVALID`
+- [ ] M2 follow-ups: `onOrderEvent` refuses to fulfil/capture/refund on `meta.simulated` events; reconciliation table for webhook state conflicts (D15); one stored `PayPal-Request-Id` per order + operation; partial refund vs full and `PAYMENT.CAPTURE.REVERSED` tracking; rate-limit `/webhooks/paypal` + cheap pre-checks before verify
 Accept: happy path end-to-end in sandbox.
 
 ## M8 Web UI — Fri 6 Nov
