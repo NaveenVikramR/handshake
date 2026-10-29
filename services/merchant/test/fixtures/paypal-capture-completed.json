@@ -1,0 +1,43 @@
+{
+  "id": "WH-58D329510W468432D-8HN650336L201105X",
+  "event_version": "1.0",
+  "create_time": "2026-10-29T10:15:27.000Z",
+  "resource_type": "capture",
+  "resource_version": "2.0",
+  "event_type": "PAYMENT.CAPTURE.COMPLETED",
+  "summary": "Payment completed for $ 13.48 USD",
+  "resource": {
+    "id": "5D1521094W662190B",
+    "status": "COMPLETED",
+    "amount": { "currency_code": "USD", "value": "13.48" },
+    "final_capture": true,
+    "custom_id": "req_demo1",
+    "invoice_id": "ord_demo1",
+    "create_time": "2026-10-29T10:15:20Z",
+    "update_time": "2026-10-29T10:15:20Z",
+    "links": [
+      {
+        "href": "https://api.sandbox.paypal.com/v2/payments/captures/5D1521094W662190B",
+        "rel": "self",
+        "method": "GET"
+      },
+      {
+        "href": "https://api.sandbox.paypal.com/v2/payments/authorizations/2X48324452506022U",
+        "rel": "up",
+        "method": "GET"
+      }
+    ]
+  },
+  "links": [
+    {
+      "href": "https://api.sandbox.paypal.com/v1/notifications/webhooks-events/WH-58D329510W468432D-8HN650336L201105X",
+      "rel": "self",
+      "method": "GET"
+    },
+    {
+      "href": "https://api.sandbox.paypal.com/v1/notifications/webhooks-events/WH-58D329510W468432D-8HN650336L201105X/resend",
+      "rel": "resend",
+      "method": "POST"
+    }
+  ]
+}

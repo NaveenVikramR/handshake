@@ -21,7 +21,7 @@ Accept: ≥25 unit tests pass; tampering any field breaks verification.
 ## M2 PayPal client — Sat 31 Oct  (SPEC §7, docs/PAYPAL.md)
 - [x] token cache, `createOrderAuthorize`, `capture`, `void`, `refund`, `addTracking`
 - [x] `PayPal-Request-Id` on every POST; decimal-string conversion at boundary only
-- [ ] webhook verify + dedupe table; `DEMO_MODE` simulate endpoint
+- [x] Webhook verify + dedupe + DEMO_MODE simulator: code and tests with recorded/mocked PayPal events
 - [x] order state machine with transition tests
 Accept: mocked-fetch tests + sandbox smoke pass.
 
@@ -39,6 +39,12 @@ Accept: split-order attack blocked.
 ## M5 Merchant agent — Tue 3 Nov  (SPEC §4.1, §10)
 - [ ] seed catalog + registry; agent card; `POST /offers` signs offer, holds stock
 - [ ] offer expiry job releases holds
+- [ ] Live sandbox webhook delivered to the deployed merchant service (moved from M2)
+  1. Deploy the merchant service to Render
+  2. Register its `https://<host>/webhooks/paypal` URL in the PayPal sandbox app (Webhooks → Add)
+  3. Put the webhook id in Render's env as `PAYPAL_WEBHOOK_ID`
+  4. Trigger a sandbox capture (`pnpm paypal:smoke --capture`)
+  5. Confirm the `PAYMENT.CAPTURE.COMPLETED` event is stored once in `paypal_events` (verification SUCCESS, no duplicate row)
 Accept: offer verifies with core; tampered offer rejected.
 
 ## M6 Consumer agent — Wed 4 Nov  (SPEC §5.2, §8)
