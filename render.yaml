@@ -5,7 +5,7 @@ services:
     name: handshake-passkey
     runtime: node
     plan: free
-    region: singapore
+    region: ohio
     buildCommand: npx -y pnpm@10.34.9 install --frozen-lockfile --filter @handshake/passkey-hello
     startCommand: node apps/passkey-hello/src/server.ts
     healthCheckPath: /healthz
