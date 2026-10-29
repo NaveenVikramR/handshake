@@ -19,7 +19,7 @@ if (existsSync(rootEnv)) process.loadEnvFile(rootEnv);
 
 const RETURN_URL = "https://example.com/handshake/return";
 const CANCEL_URL = "https://example.com/handshake/cancel";
-const APPROVAL_TIMEOUT_MS = 10 * 60_000;
+const APPROVAL_TIMEOUT_MS = 5 * 60_000;
 
 const spikeVault = process.argv.includes("--vault");
 
