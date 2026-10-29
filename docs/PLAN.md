@@ -51,6 +51,8 @@ Accept: chat request ends in a receipt; LLM cannot change amounts (test).
 - [ ] gate steps 1–9 in order, each writing a decision
 - [ ] risk inspector (rules + LLM, escalate-only)
 - [ ] fulfil → capture → tracking; failure/expiry → void; receipt chain
+- [ ] Single `verifyPaymentRequest(req, ctx)` wrapper that runs every gate check in SPEC §6 order; route handlers call only this
+- [ ] Payee binding: `offer.merchantAgentId`, `merchantId` and `paypalMerchantId` must equal this merchant's own configured ids, else `OFFER_SIG_INVALID`
 Accept: happy path end-to-end in sandbox.
 
 ## M8 Web UI — Fri 6 Nov
@@ -67,6 +69,7 @@ Accept: 0 unauthorized authorizations, 0 duplicate charges.
 ## M10 Polish — Sun 8 Nov
 - [ ] demo seed script, reset button, simulate-webhook button
 - [ ] error messages human-readable on dashboard
+- [ ] Low findings: `signEnvelope` runtime type check, bound `holdUntil` (≤ 15 min from `iat`), generic error messages in HTTP responses (detail only in decisions log)
 
 ## M11 Ship — Mon 9 Nov
 - [ ] Render deploy (3 services) pointing at the Neon `main` branch; migrations applied there; health checks

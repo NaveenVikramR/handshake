@@ -26,6 +26,7 @@ export default defineAttack({
 
 Rules
 - Start from `h.happyPathRequest()` and change one thing, so each case proves one check.
+- Tampering attacks must keep the payload internally consistent (e.g. change `unitMinor` and `totalMinor` together) so they reach the signature/hash check, not just schema validation.
 - Assert both the error code and `authorized === false`; for idempotency cases also assert PayPal create-order was called at most once (`h.paypalCalls()`).
 - Use the mocked PayPal client and fake authenticator from the harness — no network.
 - Never weaken production code to make a case pass; report the missing check instead.
