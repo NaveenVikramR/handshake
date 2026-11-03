@@ -82,7 +82,9 @@ model Approval {
   payloadJson   Json      @map("payload_json")
   /// Unique: one assertion can never approve two approvals (same cart and nonce).
   hash          String    @unique
-  status        String    @default("pending") // pending | approved
+  status        String    @default("pending") // pending | approved | cancelled
+  /// The delivery address the user gave (wallet-side); shown only if hash(shipTo) == cart.shipToHash.
+  shipToJson    Json?     @map("ship_to_json")
   expiresAt     DateTime  @map("expires_at")
   credentialId  String?   @map("credential_id")
   assertionJson Json?     @map("assertion_json")
@@ -310,10 +312,16 @@ model Decision {
 
 /// Saved PayPal wallet per wallet user (D7, D22). Server-side only; never logged or returned.
 model PaypalVault {
-  userId     String   @id @map("user_id")
-  vaultId    String   @map("vault_id")
-  customerId String?  @map("customer_id")
-  createdAt  DateTime @default(now()) @map("created_at")
+  userId      String    @id @map("user_id")
+  vaultId     String    @map("vault_id")
+  customerId  String?   @map("customer_id")
+  /// The PayPal account that approved saving it. A confirmed vault is never replaced by another payer.
+  payerId     String?   @map("payer_id")
+  payerEmail  String?   @map("payer_email")
+  /// pending until the wallet user confirms the payer with a passkey (M8); only confirmed vaults pay.
+  status      String    @default("pending")
+  confirmedAt DateTime? @map("confirmed_at")
+  createdAt   DateTime  @default(now()) @map("created_at")
 
   @@map("paypal_vaults")
 }

@@ -6,8 +6,14 @@ const URL_ = "https://handshake-merchant.onrender.com/webhooks/paypal";
 
 function fakePayPal(existing: PayPalWebhook[]) {
   const created: { url: string; events: string[]; requestId: string }[] = [];
+  const updated: { id: string; events: string[] }[] = [];
   return {
     created,
+    updated,
+    updateWebhookEventTypes: async (id: string, events: string[]) => {
+      updated.push({ id, events });
+      return { id, url: URL_, event_types: events.map((name) => ({ name })) };
+    },
     listWebhooks: async () => existing,
     createWebhook: async (url: string, events: string[], requestId: string) => {
       created.push({ url, events, requestId });
@@ -43,11 +49,14 @@ describe("ensureWebhook", () => {
     expect(pp.created).toHaveLength(0);
   });
 
-  it("reports events an existing webhook lacks", async () => {
-    const pp = fakePayPal([{ id: "WH-1", url: URL_, event_types: [{ name: "PAYMENT.CAPTURE.COMPLETED" }] }]);
+  it("adds the events an existing webhook lacks with one PATCH, keeping the ones it had", async () => {
+    const pp = fakePayPal([{ id: "WH-1", url: URL_, event_types: [{ name: "PAYMENT.CAPTURE.COMPLETED" }, { name: "OTHER.EVENT" }] }]);
     const r = await ensureWebhook(pp, URL_);
-    expect(r.missing).toContain("PAYMENT.CAPTURE.REFUNDED");
-    expect(r.missing).not.toContain("PAYMENT.CAPTURE.COMPLETED");
+    expect(r.added).toContain("PAYMENT.CAPTURE.REVERSED");
+    expect(r.added).not.toContain("PAYMENT.CAPTURE.COMPLETED");
+    expect(pp.updated).toHaveLength(1);
+    expect(pp.updated[0]!.events).toEqual(expect.arrayContaining([...WEBHOOK_EVENT_TYPES, "OTHER.EVENT"]));
+    expect(pp.created).toHaveLength(0);
   });
 
   it("creates one with every handled event and a request id stable across runs", async () => {
@@ -94,5 +103,14 @@ describe("PayPal client webhook calls", () => {
       url: URL_,
       event_types: [{ name: "PAYMENT.CAPTURE.COMPLETED" }],
     });
+  });
+
+  it("updates event types with a JSON Patch replace (PATCH, no request id)", async () => {
+    const { paypal, calls } = client([{ status: 200, body: { id: "WH-1", url: URL_, event_types: [] } }]);
+    await paypal.updateWebhookEventTypes("WH-1", ["PAYMENT.CAPTURE.REVERSED"]);
+    expect(calls[1]).toMatchObject({ method: "PATCH", url: `${PAYPAL_SANDBOX_BASE_URL}/v1/notifications/webhooks/WH-1` });
+    expect(JSON.parse(calls[1]?.body ?? "[]")).toEqual([
+      { op: "replace", path: "/event_types", value: [{ name: "PAYMENT.CAPTURE.REVERSED" }] },
+    ]);
   });
 });

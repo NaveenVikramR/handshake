@@ -31,11 +31,20 @@ async function register(s: Setup) {
     .post("/passkeys/register/verify")
     .send({ userId: body.userId, response: auth.register(body.options.challenge) });
   expect(res.status).toBe(200);
+  const o = await request(s.app).post("/passkeys/login/options").send({ userId: body.userId });
+  const v = await request(s.app)
+    .post("/passkeys/login/verify")
+    .send({ loginId: o.body.loginId, response: auth.assertJSON(o.body.options.challenge) });
+  expect(v.status).toBe(200);
+  sessions.set(body.userId as string, v.body.token as string);
   return { userId: body.userId as string, auth };
 }
 
-const request_ = (userId: string, patch: object = {}) => ({
-  userId,
+/** Bearer for each signed-in test user. */
+const sessions = new Map<string, string>();
+const bearer = (userId: string) => `Bearer ${sessions.get(userId) ?? "A".repeat(43)}`;
+
+const request_ = (_userId: string, patch: object = {}) => ({
   merchants: ["mer_corner"],
   categories: ["grocery"],
   perOrderMinor: 3000,
@@ -47,7 +56,7 @@ const request_ = (userId: string, patch: object = {}) => ({
 });
 
 async function options(s: Setup, userId: string, patch: object = {}) {
-  return request(s.app).post("/mandates/options").send(request_(userId, patch));
+  return request(s.app).post("/mandates/options").set("authorization", bearer(userId)).send(request_(userId, patch));
 }
 
 async function approve(
@@ -57,8 +66,11 @@ async function approve(
   auth: FakeAuthenticator,
   opts: AssertOptions = {},
 ) {
+  // Signed in as the mandate's owner (any session for an unknown mandate).
+  const owner = (await s.ctx.store.getMandate(mandateId))?.userId ?? [...sessions.keys()].at(-1) ?? "";
   return request(s.app)
     .post("/mandates/verify")
+    .set("authorization", bearer(owner))
     .send({ mandateId, response: auth.assertJSON(challenge, opts) });
 }
 
@@ -134,10 +146,21 @@ describe("POST /mandates/options", () => {
     expect(res.body).toEqual({ error: "MERCHANT_UNTRUSTED" });
   });
 
-  it("refuses a user without a passkey", async () => {
+  it("refuses a caller without a wallet session (the user comes from the session, never the body)", async () => {
     const s = setup();
     const res = await options(s, "usr_nobody");
-    expect(res.body).toEqual({ error: "MANDATE_INVALID" });
+    expect(res.status).toBe(401);
+    expect(res.body).toEqual({ error: "UNAUTHENTICATED" });
+  });
+
+  it("a userId in the body is rejected", async () => {
+    const s = setup();
+    const { userId } = await register(s);
+    const res = await request(s.app)
+      .post("/mandates/options")
+      .set("authorization", bearer(userId))
+      .send({ ...request_(userId), userId: "usr_someoneelse" });
+    expect(res.body).toEqual({ error: "SCHEMA_INVALID" });
   });
 });
 
@@ -162,7 +185,8 @@ describe("POST /mandates/verify", () => {
     const stored = await s.ctx.store.getMandate(p.mandateId);
     expect(stored?.status).toBe("active");
     expect(stored?.assertion?.credentialId).toBe(p.auth.credentialId);
-    expect((await s.ctx.store.getCredential(p.auth.credentialId))?.signCount).toBe(1);
+    // Sign-in counted once, the mandate approval once more.
+    expect((await s.ctx.store.getCredential(p.auth.credentialId))?.signCount).toBe(2);
   });
 
   it("UV missing → MANDATE_INVALID, stays pending", async () => {
@@ -200,8 +224,9 @@ describe("POST /mandates/verify", () => {
     const s = setup();
     const p = await pending(s);
     const body = { mandateId: p.mandateId, response: p.auth.assertJSON(p.challenge) };
-    expect((await request(s.app).post("/mandates/verify").send(body)).status).toBe(200);
-    const again = await request(s.app).post("/mandates/verify").send(body);
+    const auth = bearer(p.userId);
+    expect((await request(s.app).post("/mandates/verify").set("authorization", auth).send(body)).status).toBe(200);
+    const again = await request(s.app).post("/mandates/verify").set("authorization", auth).send(body);
     expect(again.status).toBe(409);
     expect(again.body).toEqual({ error: "APPROVAL_REPLAY" });
   });
@@ -219,7 +244,9 @@ describe("POST /mandates/verify", () => {
     expect((await approve(s, "man_AAAAAAAAAAAAAAAAAAAAAA", p.challenge, p.auth)).body).toEqual({
       error: "MANDATE_INVALID",
     });
-    expect((await request(s.app).post("/mandates/verify").send({ mandateId: p.mandateId })).body).toEqual({
+    expect(
+      (await request(s.app).post("/mandates/verify").set("authorization", bearer(p.userId)).send({ mandateId: p.mandateId })).body,
+    ).toEqual({
       error: "SCHEMA_INVALID",
     });
   });

@@ -2,7 +2,7 @@
 import { readFileSync } from "node:fs";
 import type { AgentConfig, AppContext } from "../context.js";
 import type { PlannerMessage } from "./planner.js";
-import type { Receipt } from "@handshake/core";
+import type { Receipt, ShipTo } from "@handshake/core";
 import { STATUS_MEANING, TOOL_SPECS, runTool, type AgentEvent, type ChatSession } from "./tools.js";
 
 export const MAX_TOOL_ROUNDS = 6;
@@ -25,6 +25,8 @@ export interface ChatInput {
   message: string;
   /** hash(ShipTo) from the signed-in wallet request; absent → the mandate's. */
   shipToHash?: string;
+  /** The address itself, kept with a step-up approval so the phone page can show it. */
+  shipTo?: ShipTo;
 }
 
 /** Log line per tool call: name and ids only, never payloads (rules/llm.md). */
@@ -50,6 +52,7 @@ export async function runChat(
   const session: ChatSession = {
     userId: input.userId,
     shipToHash: input.shipToHash,
+    ...(input.shipTo ? { shipTo: input.shipTo } : {}),
     merchants: new Map(),
     offers: new Map(),
     paid: new Set(),

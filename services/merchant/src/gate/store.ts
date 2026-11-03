@@ -50,6 +50,22 @@ export interface OrderRow {
   createdAt: number;
 }
 
+export interface RecentRequest {
+  requestId: string;
+  /** ms since epoch of the latest decision */
+  at: number;
+  decisions: Decision[];
+  order: OrderRow | null;
+}
+
+export interface VaultInput {
+  userId: string;
+  vaultId: string;
+  customerId?: string | undefined;
+  payerId?: string | undefined;
+  payerEmail?: string | undefined;
+}
+
 export interface CommitInput {
   requestId: string;
   agentId: string;
@@ -135,12 +151,25 @@ export interface GateStore<Tx = unknown> {
   updateOrder(u: OrderUpdate, tx?: Tx): Promise<boolean>;
   patchOrder(p: OrderPatch): Promise<boolean>;
   saveReceipt(requestId: string, receipt: Receipt): Promise<void>;
+  /** The user's saved wallet, only once they confirmed its payer (M8); pending vaults never pay. */
   getVault(userId: string): Promise<string | undefined>;
-  saveVault(userId: string, vaultId: string, customerId?: string): Promise<void>;
+  /**
+   * Stores a newly saved wallet as pending confirmation. "refused" if the user already confirmed a
+   * different PayPal payer: a phished approve link can't replace their wallet (D22).
+   */
+  saveVault(v: VaultInput): Promise<"unbound" | "kept" | "refused">;
+  /**
+   * The order's own wallet user came back from PayPal in their signed-in browser: their unbound
+   * vault becomes pending (confirmable). Without this, a phished approve link can't attach a
+   * victim's PayPal to the attacker's wallet, because the attacker never holds the victim's return.
+   */
+  bindVault(userId: string, payerId: string | undefined): Promise<boolean>;
   /** Authorized past fulfilBy, or offered (awaiting the buyer) created before `staleOfferedBefore`. */
   dueOrders(now: number, staleOfferedBefore: number, limit?: number): Promise<OrderRow[]>;
   /** Adds a refund to a captured order atomically; the new refunded total, or undefined if not captured. */
   addRefund(r: { orderId: string; refundId: string; amountMinor: number }, tx?: Tx): Promise<number | undefined>;
+  /** Newest gate runs for the dashboard: each request's decisions and its order, if one was created. */
+  listRecent(limit?: number): Promise<RecentRequest[]>;
   /** Deletes nonce rows whose payload expired before `before` (unix seconds); returns how many. */
   purgeNonces(before: number): Promise<number>;
   addReconciliation(r: {
@@ -358,11 +387,36 @@ export function prismaGateStore(db: PrismaClient): GateStore<Prisma.TransactionC
       });
     },
     async getVault(userId) {
-      return (await db.paypalVault.findUnique({ where: { userId } }))?.vaultId;
+      const v = await db.paypalVault.findUnique({ where: { userId } });
+      return v?.status === "confirmed" ? v.vaultId : undefined;
     },
-    async saveVault(userId, vaultId, customerId) {
-      const data = { vaultId, customerId: customerId ?? null };
-      await db.paypalVault.upsert({ where: { userId }, create: { userId, ...data }, update: data });
+    async saveVault({ userId, vaultId, customerId, payerId, payerEmail }) {
+      const data = { vaultId, customerId: customerId ?? null, payerId: payerId ?? null, payerEmail: payerEmail ?? null };
+      return db.$transaction(async (tx) => {
+        // Lock the row: a confirm committing between read and write must not be overwritten.
+        await tx.$queryRaw`SELECT 1 FROM paypal_vaults WHERE user_id = ${userId} FOR UPDATE`;
+        const cur = await tx.paypalVault.findUnique({ where: { userId } });
+        if (cur?.status === "confirmed") {
+          if (!payerId || cur.payerId !== payerId) return "refused" as const;
+          await tx.paypalVault.update({ where: { userId }, data: { vaultId, customerId: data.customerId } });
+          return "kept" as const;
+        }
+        // A pending vault for the same payer stays pending (already bound by its owner's return).
+        const status = cur?.status === "pending" && cur.payerId === payerId && payerId ? "pending" : "unbound";
+        await tx.paypalVault.upsert({
+          where: { userId },
+          create: { userId, ...data, status },
+          update: { ...data, status, confirmedAt: null },
+        });
+        return "unbound" as const;
+      }, TX);
+    },
+    async bindVault(userId, payerId) {
+      const { count } = await db.paypalVault.updateMany({
+        where: { userId, status: "unbound", ...(payerId ? { payerId } : {}) },
+        data: { status: "pending" },
+      });
+      return count === 1;
     },
     async dueOrders(now, staleOfferedBefore, limit = 50) {
       const rows = await db.order.findMany({
@@ -379,6 +433,23 @@ export function prismaGateStore(db: PrismaClient): GateStore<Prisma.TransactionC
     },
     async purgeNonces(before) {
       return (await db.usedNonce.deleteMany({ where: { exp: { lt: new Date(before * 1000) } } })).count;
+    },
+    async listRecent(limit = 50) {
+      const rows = await db.decision.findMany({ orderBy: { id: "desc" }, take: limit * 12 });
+      const byReq = new Map<string, { at: number; decisions: Decision[] }>();
+      for (const r of rows.reverse()) {
+        const e = byReq.get(r.requestId) ?? { at: 0, decisions: [] };
+        e.decisions.push({ step: r.step, result: r.result as Decision["result"], reason: r.reason });
+        e.at = Math.max(e.at, r.at.getTime());
+        byReq.set(r.requestId, e);
+      }
+      const ids = [...byReq.keys()];
+      const orders = await db.order.findMany({ where: { requestId: { in: ids } } });
+      const orderOf = new Map(orders.map((o) => [o.requestId, toOrder(o)]));
+      return [...byReq.entries()]
+        .map(([requestId, e]) => ({ requestId, ...e, order: orderOf.get(requestId) ?? null }))
+        .sort((a, b) => b.at - a.at)
+        .slice(0, limit);
     },
     async addRefund({ orderId, refundId, amountMinor }, tx) {
       const c = tx ?? db;
@@ -412,6 +483,8 @@ export function memoryGateStore(seed: {
   categories?: Record<string, string>;
   /** Restock hook: the offer store's stock, so release is observable. */
   restock?: (offerId: string) => void;
+  /** Saved wallets, shareable with the wallet's memory store (one table in Postgres). */
+  vaults?: Map<string, { vaultId: string; payerId?: string; payerEmail?: string; status: "unbound" | "pending" | "confirmed" }>;
   /**
    * Shared-DB stand-ins for tests that run the whole flow in memory: in Postgres these are the
    * same tables the offer store and wallet write. The gate keeps its own passkey sign counts (D16).
@@ -432,7 +505,9 @@ export function memoryGateStore(seed: {
   const nonces = new Set<string>();
   const requests = new Map<string, { offerId: string; receipt: Receipt | null }>();
   const orders = new Map<string, OrderRow>();
-  const vaults = new Map<string, string>();
+  const vaults =
+    seed.vaults ??
+    new Map<string, { vaultId: string; payerId?: string; payerEmail?: string; status: "unbound" | "pending" | "confirmed" }>();
   const decisions: (Decision & { requestId: string })[] = [];
   const reconciliations: Parameters<GateStore["addReconciliation"]>[0][] = [];
   const ledger = memoryMandateLedger();
@@ -581,10 +656,30 @@ export function memoryGateStore(seed: {
       if (r) r.receipt = receipt;
     },
     async getVault(userId) {
-      return vaults.get(userId);
+      const v = vaults.get(userId);
+      return v?.status === "confirmed" ? v.vaultId : undefined;
     },
-    async saveVault(userId, vaultId) {
-      vaults.set(userId, vaultId);
+    async saveVault({ userId, vaultId, payerId, payerEmail }) {
+      const cur = vaults.get(userId);
+      if (cur?.status === "confirmed") {
+        if (!payerId || cur.payerId !== payerId) return "refused";
+        cur.vaultId = vaultId;
+        return "kept";
+      }
+      const status = cur?.status === "pending" && payerId && cur.payerId === payerId ? "pending" : "unbound";
+      vaults.set(userId, {
+        vaultId,
+        status,
+        ...(payerId ? { payerId } : {}),
+        ...(payerEmail ? { payerEmail } : {}),
+      });
+      return "unbound";
+    },
+    async bindVault(userId, payerId) {
+      const v = vaults.get(userId);
+      if (!v || v.status !== "unbound" || (payerId && v.payerId !== payerId)) return false;
+      v.status = "pending";
+      return true;
     },
     async dueOrders(now, staleOfferedBefore) {
       return [...orders.values()]
@@ -597,6 +692,19 @@ export function memoryGateStore(seed: {
     },
     async purgeNonces() {
       return 0;
+    },
+    async listRecent(limit = 50) {
+      const byReq = new Map<string, Decision[]>();
+      for (const d of decisions) byReq.set(d.requestId, [...(byReq.get(d.requestId) ?? []), d]);
+      return [...byReq.entries()]
+        .reverse()
+        .slice(0, limit)
+        .map(([requestId, ds]) => ({
+          requestId,
+          at: Date.now(),
+          decisions: ds.map(({ step, result, reason }) => ({ step, result, reason })),
+          order: [...orders.values()].find((o) => o.requestId === requestId) ?? null,
+        }));
     },
     async addRefund({ orderId, refundId, amountMinor }) {
       const o = orders.get(orderId);

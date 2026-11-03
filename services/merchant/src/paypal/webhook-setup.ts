@@ -33,18 +33,24 @@ export interface EnsureResult {
   created: boolean;
   /** Event types we want that an existing webhook isn't subscribed to. */
   missing: string[];
+  /** Event types this run added to an existing webhook. */
+  added?: string[];
 }
 
 /** Returns the webhook already registered for `url`, or creates it. */
 export async function ensureWebhook(
-  paypal: Pick<PayPalClient, "listWebhooks" | "createWebhook">,
+  paypal: Pick<PayPalClient, "listWebhooks" | "createWebhook" | "updateWebhookEventTypes">,
   url: string,
   eventTypes: string[] = WEBHOOK_EVENT_TYPES,
 ): Promise<EnsureResult> {
   const existing = (await paypal.listWebhooks()).find((w) => w.url === url);
   if (existing) {
     const have = new Set((existing.event_types ?? []).map((e) => e.name));
-    return { webhook: existing, created: false, missing: eventTypes.filter((e) => !have.has(e) && !have.has("*")) };
+    const missing = eventTypes.filter((e) => !have.has(e) && !have.has("*"));
+    if (missing.length === 0) return { webhook: existing, created: false, missing: [] };
+    // Subscribe the existing webhook to what's missing, keeping what it already had.
+    const all = [...new Set([...have, ...eventTypes])];
+    return { webhook: await paypal.updateWebhookEventTypes(existing.id, all), created: false, missing: [], added: missing };
   }
   // Idempotency comes from listing first (PayPal doesn't document PayPal-Request-Id on this POST);
   // the id is still sent (rule 4) and is stable per url + events.

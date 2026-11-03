@@ -42,6 +42,7 @@ export interface GateContext {
     | "captureAuthorization"
     | "voidAuthorization"
     | "addTracking"
+    | "refundCapture"
   >;
   risk: RiskInspector;
   /** The wallet's WebAuthn origin and RP ID: passkey assertions must come from there. */

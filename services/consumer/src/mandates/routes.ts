@@ -5,6 +5,7 @@ import { generateAuthenticationOptions } from "@simplewebauthn/server";
 import express, { Router, type Response } from "express";
 import { z } from "zod";
 import { parseAssertionBody } from "../assertion-body.js";
+import { requireSession } from "../sessions/routes.js";
 import type { AppContext } from "../context.js";
 import { MANDATE_SIGN_WINDOW_MS, MandateRequest, activateMandate, createMandate } from "./service.js";
 
@@ -19,11 +20,12 @@ export function mandateRouter(ctx: AppContext): Router {
   const router = Router();
   router.use(express.json({ limit: "32kb" }));
 
-  router.post("/mandates/options", async (req, res) => {
+  router.post("/mandates/options", requireSession(ctx), async (req, res) => {
     const body = MandateRequest.safeParse(req.body);
     if (!body.success) return void res.status(400).json({ error: "SCHEMA_INVALID" });
     try {
-      const { mandateId, mandate, hash, merchants } = await createMandate(ctx, body.data);
+      const userId = res.locals.userId as string;
+      const { mandateId, mandate, hash, merchants } = await createMandate(ctx, { ...body.data, userId });
       const credentials = await ctx.store.listCredentials(mandate.userId);
       const options = await generateAuthenticationOptions({
         rpID: ctx.webauthn.rpId,
@@ -43,11 +45,13 @@ export function mandateRouter(ctx: AppContext): Router {
     }
   });
 
-  router.post("/mandates/verify", async (req, res) => {
+  router.post("/mandates/verify", requireSession(ctx), async (req, res) => {
     const id = MandateId.safeParse((req.body as { mandateId?: unknown } | undefined)?.mandateId);
     const assertion = parseAssertionBody(req.body);
     if (!id.success || !assertion) return void res.status(400).json({ error: "SCHEMA_INVALID" });
     try {
+      const m = await ctx.store.getMandate(id.data);
+      if (!m || m.userId !== res.locals.userId) return void res.status(404).json({ error: "MANDATE_INVALID" });
       await activateMandate(ctx, id.data, assertion);
       res.json({ mandateId: id.data, status: "active" });
     } catch (e) {

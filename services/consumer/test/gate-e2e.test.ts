@@ -1,5 +1,6 @@
 // M6 follow-up: a real chat ends in a gate-issued receipt (real M7 gate, fake PayPal).
 import { hash, shipToHash } from "@handshake/core";
+import request from "supertest";
 import { afterEach, describe, expect, it } from "vitest";
 import { verifyApproval } from "../src/approvals/service.js";
 import { honestFinal, runChat } from "../src/agent/loop.js";
@@ -72,7 +73,7 @@ async function chat(
 describe("chat → real gate", () => {
   it("first purchase: PayPal approval link (wallet saved), then a gate receipt; the next one needs no PayPal step", async () => {
     h = await harness();
-    const { userId } = await mandated(h);
+    const { userId, auth } = await mandated(h);
     const first = await chat(h, userId, "ok");
     expect(first.find((e) => e.type === "paypal_approval_required")).toMatchObject({
       url: expect.stringMatching(/^https:\/\/www\.sandbox\.paypal\.com\//),
@@ -80,6 +81,22 @@ describe("chat → real gate", () => {
     const r1 = first.find((e) => e.type === "receipt");
     expect(r1).toMatchObject({ receipt: { status: "authorized", paypalOrderId: expect.any(String) } });
     expect((r1 as { receipt: { decisions: { step: string }[] } }).receipt.decisions.map((d) => d.step)).toContain("6b");
+
+    // Saved wallet pays without a redirect only after the user confirms its PayPal payer (D22, M8).
+    const token = await h.signIn(userId, auth);
+    // The buyer's signed-in browser lands on the PayPal return page (the web server vouches for them).
+    const ppToken = new URL((first.find((e) => e.type === "paypal_approval_required") as { url: string }).url).searchParams.get("token")!;
+    await request(h.merchantUrl)
+      .post("/paypal/return")
+      .set("authorization", "Bearer admin-token-0123456789abcdef")
+      .send({ token: ppToken, walletUserId: userId });
+    const link = await request(h.app).get("/wallet/paypal").set("authorization", `Bearer ${token}`);
+    expect(link.body).toMatchObject({ status: "pending", payerEmail: "buyer@example.com" });
+    const ok = await request(h.app)
+      .post("/wallet/paypal/confirm")
+      .set("authorization", `Bearer ${token}`)
+      .send({ linkId: link.body.linkId, response: auth.assertJSON(link.body.options.challenge) });
+    expect(ok.body).toEqual({ status: "confirmed" });
 
     const second = await chat(h, userId, "ok");
     expect(second.some((e) => e.type === "paypal_approval_required")).toBe(false);

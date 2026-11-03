@@ -181,4 +181,24 @@ describe.skipIf(!enabled)("gate store on Postgres (DB_TESTS=1)", () => {
     const left = await db.usedNonce.findMany({ where: { kid: agentId, nonce: { in: [`old${tag}`, `new${tag}`] } } });
     expect(left.map((r) => r.nonce)).toEqual([`new${tag}`]);
   });
+
+  it("saved wallets: unbound until bound, then pending; a confirmed one is never replaced by another payer", async () => {
+    const u = `usr_vault${tag}`;
+    try {
+      expect(await store.saveVault({ userId: u, vaultId: "V1", payerId: "P1", payerEmail: "p1@x" })).toBe("unbound");
+      expect(await store.getVault(u)).toBeUndefined();
+      expect(await store.bindVault(u, undefined)).toBe(true);
+      await db.paypalVault.update({ where: { userId: u }, data: { status: "confirmed" } });
+      expect(await store.getVault(u)).toBe("V1");
+      const both = await Promise.all([
+        store.saveVault({ userId: u, vaultId: "V2", payerId: "P2" }),
+        store.saveVault({ userId: u, vaultId: "V3", payerId: "P1" }),
+      ]);
+      expect(both.sort()).toEqual(["kept", "refused"]);
+      expect(await db.paypalVault.findUniqueOrThrow({ where: { userId: u } })).toMatchObject({ status: "confirmed", payerId: "P1", vaultId: "V3" });
+    } finally {
+      await db.paypalVault.deleteMany({ where: { userId: u } });
+    }
+  });
 });
+

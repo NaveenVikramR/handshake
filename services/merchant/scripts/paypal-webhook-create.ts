@@ -15,7 +15,8 @@ try {
     clientId: process.env.PAYPAL_CLIENT_ID ?? "",
     clientSecret: process.env.PAYPAL_CLIENT_SECRET ?? "",
   });
-  const { webhook, created, missing } = await ensureWebhook(paypal, url);
+  const { webhook, created, missing, added } = await ensureWebhook(paypal, url);
+  if (added?.length) console.log(`updated: subscribed to ${added.join(", ")}`);
   console.log(`${created ? "created" : "already exists"}: webhook id ${webhook.id}`);
   console.log(`url: ${webhook.url}`);
   if (missing.length) console.log(`note: existing webhook is not subscribed to ${missing.join(", ")}`);

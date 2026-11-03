@@ -1,6 +1,13 @@
 import { existsSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import { createDb } from "@handshake/db";
+import { PayPalAgentToolkit } from "@paypal/agent-toolkit/openai";
+import {
+  READ_ONLY_PAYPAL_ACTIONS,
+  assertReadOnly,
+  openAIAssistantModel,
+  type PayPalTools,
+} from "./assistant/assistant.js";
 import { createApp } from "./app.js";
 import { orderEventHandler } from "./gate/order-events.js";
 import { openAIRiskModel, riskInspector } from "./gate/risk.js";
@@ -28,6 +35,12 @@ const paypal = createPayPalClient({
   clientId: process.env.PAYPAL_CLIENT_ID ?? "",
   clientSecret: process.env.PAYPAL_CLIENT_SECRET ?? "",
 });
+
+/** Refuses to start if the toolkit offers anything that isn't read-only. */
+function readOnlyToolkit(t: PayPalAgentToolkit): PayPalTools {
+  assertReadOnly(t.getTools() as { type: string; function?: { name: string } }[]);
+  return t as unknown as PayPalTools;
+}
 
 function required(name: string): string {
   const v = process.env[name];
@@ -63,7 +76,22 @@ const demoSecret = process.env.DEMO_SECRET;
 const app = createApp({
   webhooks: { paypal, store: prismaWebhookStore(db), webhookId, onOrderEvent: orderEventHandler(gateStore) },
   offers: { store: offerStore, self, now: Date.now },
-  gate: { ctx: gate, adminToken: required("MERCHANT_ADMIN_TOKEN") },
+  gate: {
+    ctx: gate,
+    adminToken: required("MERCHANT_ADMIN_TOKEN"),
+    assistant: {
+      store: gateStore,
+      model: openAIAssistantModel({ baseURL: required("LLM_BASE_URL"), apiKey: required("LLM_API_KEY"), model: required("LLM_MODEL") }),
+      // Read-only actions, sandbox only (rule 1); refunds go through /orders/:id/refund after a confirm.
+      paypal: readOnlyToolkit(
+        new PayPalAgentToolkit({
+        clientId: required("PAYPAL_CLIENT_ID"),
+        clientSecret: required("PAYPAL_CLIENT_SECRET"),
+          configuration: { actions: READ_ONLY_PAYPAL_ACTIONS as never, context: { sandbox: true } },
+        }),
+      ),
+    },
+  },
   demoMode,
   ...(demoSecret === undefined ? {} : { demoSecret }),
 });

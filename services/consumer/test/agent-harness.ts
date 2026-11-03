@@ -97,8 +97,10 @@ export async function harness(opts: { paypalMerchantIdInRegistry?: string } = {}
   });
   const self = await loadSelf(offerStore, "agt_m_corner", merchantKeys.privateKey);
   // The wallet's tables; in Postgres the gate reads the same rows (registry passkeys, mandates).
-  const store = memoryWalletStore({ merchants, agents });
+  const vaults = new Map<string, { vaultId: string; payerId?: string; payerEmail?: string; status: "pending" | "confirmed" }>();
+  const store = memoryWalletStore({ merchants, agents, vaults });
   const gate = memoryGateStore({
+    vaults,
     links: {
       offer: (id) => {
         const o = offerStore.offers.get(id);
@@ -171,6 +173,15 @@ export async function harness(opts: { paypalMerchantIdInRegistry?: string } = {}
   const ctx: AppContext = { store, webauthn, consumerAgentId: "agt_c_wallet", now: Date.now, agent };
   const app = createApp(ctx);
 
+  async function signIn(userId: string, auth: FakeAuthenticator): Promise<string> {
+    const o = await request(app).post("/passkeys/login/options").send({ userId });
+    const v = await request(app)
+      .post("/passkeys/login/verify")
+      .send({ loginId: o.body.loginId, response: auth.assertJSON(o.body.options.challenge) });
+    expect(v.status).toBe(200);
+    return v.body.token as string;
+  }
+
   async function registerUser() {
     const auth = new FakeAuthenticator(webauthn.rpId, webauthn.origin);
     const o = await request(app).post("/passkeys/register/options").send({ displayName: "Alice" });
@@ -205,6 +216,7 @@ export async function harness(opts: { paypalMerchantIdInRegistry?: string } = {}
     merchantKeys,
     consumerKeys,
     registerUser,
+    signIn,
     close: () => new Promise<void>((r) => server.close(() => r())),
   };
 }

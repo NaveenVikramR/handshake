@@ -1,4 +1,6 @@
 import express, { type ErrorRequestHandler, type Express } from "express";
+import type { AssistantDeps } from "./assistant/assistant.js";
+import { dashboardRouter } from "./dashboard/routes.js";
 import { gateRouter } from "./gate/routes.js";
 import type { GateContext } from "./gate/verify.js";
 import { offerRouter } from "./offers/routes.js";
@@ -11,7 +13,7 @@ export interface AppDeps<Tx> {
   /** Agent card, catalog and offers; omitted by webhook-only tests. */
   offers?: OfferContext;
   /** Payments gate + settlement; omitted by webhook/offer-only tests. */
-  gate?: { ctx: GateContext; adminToken: string };
+  gate?: { ctx: GateContext; adminToken: string; assistant?: AssistantDeps };
   demoMode: boolean;
   demoSecret?: string;
 }
@@ -32,7 +34,15 @@ export function createApp<Tx>(deps: AppDeps<Tx>): Express {
     }),
   );
   if (deps.offers) app.use(offerRouter(deps.offers));
-  if (deps.gate) app.use(gateRouter(deps.gate.ctx, { adminToken: deps.gate.adminToken }));
+  if (deps.gate) {
+    app.use(gateRouter(deps.gate.ctx, { adminToken: deps.gate.adminToken }));
+    app.use(
+      dashboardRouter(deps.gate.ctx, {
+        adminToken: deps.gate.adminToken,
+        ...(deps.gate.assistant ? { assistant: deps.gate.assistant } : {}),
+      }),
+    );
+  }
 
   // Never return stacks: bad JSON is a schema error, anything else a bare 500.
   const onError: ErrorRequestHandler = (err: { type?: string }, _req, res, _next) => {

@@ -37,12 +37,27 @@ export function approvalRouter(ctx: AppContext): Router {
         })),
       });
       if (options.challenge !== approval.hash) throw new Error("challenge does not equal hash(cart)");
+      // The badge comes from the trust registry, never from the merchant's own card.
+      const [merchant] = await ctx.store.getMerchants([approval.payload.merchantId]);
       // Everything the human approves is exactly what was hashed.
       res.json({
         id: approval.id,
         status: approval.status,
         expiresAt: approval.expiresAt,
         cart: approval.payload,
+        merchant: { id: approval.payload.merchantId, name: merchant?.name ?? null, verified: merchant?.status === "active" },
+        // Shown only because it hashes to cart.shipToHash (checked when it was stored).
+        // The link is a bearer capability: mask the street line.
+        ...(approval.shipTo
+          ? {
+              shipTo: {
+                name: approval.shipTo.name,
+                city: approval.shipTo.city,
+                postalCode: approval.shipTo.postalCode,
+                country: approval.shipTo.country,
+              },
+            }
+          : {}),
         options,
       });
     } catch (e) {

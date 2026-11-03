@@ -1,6 +1,6 @@
 // Persistence for the wallet: users, passkeys, registration challenges, approvals.
 // Prisma for real runs; memory for tests. Same contract.
-import { CartApproval, HandshakeError, IntentMandate, type WebAuthnAssertion } from "@handshake/core";
+import { CartApproval, HandshakeError, IntentMandate, ShipTo, hash, type WebAuthnAssertion } from "@handshake/core";
 import type { Prisma, PrismaClient } from "@handshake/db";
 
 export interface StoredCredential {
@@ -13,7 +13,7 @@ export interface StoredCredential {
   transports: string[];
 }
 
-export type ApprovalStatus = "pending" | "approved";
+export type ApprovalStatus = "pending" | "approved" | "cancelled";
 
 export interface StoredApproval {
   id: string;
@@ -25,6 +25,8 @@ export interface StoredApproval {
   expiresAt: number;
   credentialId?: string;
   assertion?: WebAuthnAssertion;
+  /** Delivery address matching payload.shipToHash, for the phone page. */
+  shipTo?: ShipTo;
 }
 
 export interface CompleteApprovalInput {
@@ -38,7 +40,7 @@ export interface CompleteApprovalInput {
   now: number;
 }
 
-export type MandateStatus = "pending" | "active";
+export type MandateStatus = "pending" | "active" | "revoked";
 
 export interface StoredMandate {
   id: string;
@@ -70,6 +72,28 @@ export interface RegistryAgentRow {
   merchantId: string | null;
 }
 
+/** An order as the wallet's activity list shows it (the merchant's orders table, shared DB). */
+export interface ActivityRow {
+  orderId: string;
+  requestId: string;
+  merchantId: string | null;
+  totalMinor: number;
+  currency: string;
+  status: string;
+  path: string;
+  /** ms since epoch */
+  createdAt: number;
+}
+
+/** The user's saved PayPal wallet as the wallet may show it: never the vault id itself. */
+export interface VaultView {
+  status: "pending" | "confirmed";
+  payerId: string | null;
+  payerEmail: string | null;
+  /** hash of the vault id, so a confirmation is bound to this exact vault. */
+  vaultRef: string;
+}
+
 export interface LoginChallengeRow {
   id: string;
   userId: string;
@@ -83,6 +107,18 @@ export interface WalletStore {
   /** Registry rows for these merchant ids; unknown ids are simply absent. */
   getMerchants(ids: string[]): Promise<RegistryMerchant[]>;
   getRegistryAgent(id: string): Promise<RegistryAgentRow | undefined>;
+  getUser(id: string): Promise<{ id: string; displayName: string } | undefined>;
+  /** All of the user's mandates, newest first. */
+  listMandates(userId: string): Promise<StoredMandate[]>;
+  /** pending|active → revoked for this user's mandate; false if not theirs or already revoked. */
+  revokeMandate(id: string, userId: string): Promise<boolean>;
+  /** pending → cancelled (the chat waiting for it closed); false otherwise. */
+  cancelApproval(id: string): Promise<boolean>;
+  deleteSession(tokenHash: string): Promise<void>;
+  listActivity(userId: string, limit?: number): Promise<ActivityRow[]>;
+  getVault(userId: string): Promise<VaultView | undefined>;
+  /** pending → confirmed, only for the same payer and vault the user saw; false otherwise. */
+  confirmVault(userId: string, payerId: string, vaultRef: string): Promise<boolean>;
   /** Active mandates of this user, newest first (the caller still checks exp and scope). */
   listActiveMandates(userId: string): Promise<StoredMandate[]>;
   putLoginChallenge(c: LoginChallengeRow): Promise<void>;
@@ -118,6 +154,11 @@ export interface WalletStore {
 
 class Abort extends Error {}
 
+const shipToOf = (v: unknown): ShipTo | undefined => {
+  const p = ShipTo.safeParse(v);
+  return p.success ? p.data : undefined;
+};
+
 // Neon over the pooler can take >2 s (Prisma's default) to hand out a connection on a cold start.
 const TX = { maxWait: 10_000, timeout: 15_000 };
 
@@ -145,6 +186,79 @@ export function prismaWalletStore(db: PrismaClient): WalletStore {
     },
     async getRegistryAgent(id) {
       return (await db.registryAgent.findUnique({ where: { id } })) ?? undefined;
+    },
+    async getUser(id) {
+      return (await db.user.findUnique({ where: { id }, select: { id: true, displayName: true } })) ?? undefined;
+    },
+    async listMandates(userId) {
+      const rows = await db.mandate.findMany({
+        where: { userId },
+        orderBy: { createdAt: "desc" },
+        select: { id: true },
+        take: 50,
+      });
+      const out: StoredMandate[] = [];
+      for (const { id } of rows) {
+        const m = await this.getMandate(id);
+        if (m) out.push(m);
+      }
+      return out;
+    },
+    async revokeMandate(id, userId) {
+      const { count } = await db.mandate.updateMany({
+        where: { id, userId, status: { in: ["pending", "active"] } },
+        data: { status: "revoked" },
+      });
+      return count === 1;
+    },
+    async cancelApproval(id) {
+      const { count } = await db.approval.updateMany({ where: { id, status: "pending" }, data: { status: "cancelled" } });
+      return count === 1;
+    },
+    async deleteSession(tokenHash) {
+      await db.session.deleteMany({ where: { tokenHash } });
+    },
+    async listActivity(userId, limit = 30) {
+      const orders = await db.order.findMany({ where: { userId }, orderBy: { createdAt: "desc" }, take: limit });
+      const offers = await db.offer.findMany({
+        where: { id: { in: orders.map((o) => o.offerId) } },
+        select: { id: true, payloadJson: true },
+      });
+      const merchantOf = new Map(
+        offers.map((o) => [o.id, ((o.payloadJson as { payload?: { merchantId?: string } }).payload?.merchantId ?? null)]),
+      );
+      return orders.map((o) => ({
+        orderId: o.id,
+        requestId: o.requestId,
+        merchantId: merchantOf.get(o.offerId) ?? null,
+        totalMinor: o.totalMinor,
+        currency: o.currency,
+        status: o.status,
+        path: o.path,
+        createdAt: o.createdAt.getTime(),
+      }));
+    },
+    async getVault(userId) {
+      const v = await db.paypalVault.findUnique({ where: { userId } });
+      // Unbound: saved by an agent payment the owner hasn't come back from yet; not theirs to confirm.
+      if (!v || (v.status !== "pending" && v.status !== "confirmed")) return undefined;
+      return {
+        status: v.status === "confirmed" ? "confirmed" : "pending",
+        payerId: v.payerId,
+        payerEmail: v.payerEmail,
+        vaultRef: hash({ vaultId: v.vaultId }),
+      };
+    },
+    async confirmVault(userId, payerId, vaultRef) {
+      return db.$transaction(async (tx) => {
+        const v = await tx.paypalVault.findUnique({ where: { userId } });
+        if (!v || v.status !== "pending" || v.payerId !== payerId || hash({ vaultId: v.vaultId }) !== vaultRef) return false;
+        const { count } = await tx.paypalVault.updateMany({
+          where: { userId, status: "pending", vaultId: v.vaultId, payerId },
+          data: { status: "confirmed", confirmedAt: new Date() },
+        });
+        return count === 1;
+      }, TX);
     },
     async listActiveMandates(userId) {
       const rows = await db.mandate.findMany({
@@ -226,9 +340,16 @@ export function prismaWalletStore(db: PrismaClient): WalletStore {
       const rows = await db.registryPasskey.findMany({ where: { userId }, include: { wallet: true } });
       return rows.map(toCredential);
     },
-    async createApproval({ id, userId, payload, hash, expiresAt }) {
+    async createApproval({ id, userId, payload, hash, expiresAt, shipTo }) {
       await db.approval.create({
-        data: { id, userId, payloadJson: payload as Prisma.InputJsonValue, hash, expiresAt: new Date(expiresAt) },
+        data: {
+          id,
+          userId,
+          payloadJson: payload as Prisma.InputJsonValue,
+          hash,
+          expiresAt: new Date(expiresAt),
+          ...(shipTo ? { shipToJson: shipTo as Prisma.InputJsonValue } : {}),
+        },
       });
     },
     async getApproval(id) {
@@ -246,6 +367,7 @@ export function prismaWalletStore(db: PrismaClient): WalletStore {
         expiresAt: r.expiresAt.getTime(),
         ...(r.credentialId ? { credentialId: r.credentialId } : {}),
         ...(r.assertionJson ? { assertion: r.assertionJson as unknown as WebAuthnAssertion } : {}),
+        ...(shipToOf(r.shipToJson) ? { shipTo: shipToOf(r.shipToJson)! } : {}),
       };
     },
     async createMandate({ id, userId, payload, hash, pendingUntil }) {
@@ -324,7 +446,13 @@ export function prismaWalletStore(db: PrismaClient): WalletStore {
 
 /** In-memory store for tests only: no isolation between concurrent requests. */
 export function memoryWalletStore(
-  seed: { merchants?: RegistryMerchant[]; agents?: RegistryAgentRow[] } = {},
+  seed: {
+    merchants?: RegistryMerchant[];
+    agents?: RegistryAgentRow[];
+    /** Shared-DB stand-ins: the merchant's orders and saved wallets (same rows in Postgres). */
+    activity?: (userId: string) => ActivityRow[];
+    vaults?: Map<string, { vaultId: string; payerId?: string; payerEmail?: string; status: "unbound" | "pending" | "confirmed" }>;
+  } = {},
 ): WalletStore {
   const merchants = new Map((seed.merchants ?? []).map((m) => [m.id, { ...m }]));
   const agents = new Map((seed.agents ?? []).map((a) => [a.id, { ...a }]));
@@ -346,6 +474,44 @@ export function memoryWalletStore(
     async getRegistryAgent(id) {
       const a = agents.get(id);
       return a && { ...a };
+    },
+    async getUser(id) {
+      const u = users.get(id);
+      return u && { ...u };
+    },
+    async listMandates(userId) {
+      return [...mandates.values()].filter((m) => m.userId === userId).reverse().map((m) => ({ ...m }));
+    },
+    async revokeMandate(id, userId) {
+      const m = mandates.get(id);
+      if (!m || m.userId !== userId || m.status === "revoked") return false;
+      mandates.set(id, { ...m, status: "revoked" });
+      return true;
+    },
+    async cancelApproval(id) {
+      const a = approvals.get(id);
+      if (!a || a.status !== "pending") return false;
+      approvals.set(id, { ...a, status: "cancelled" });
+      return true;
+    },
+    async deleteSession(tokenHash) {
+      sessions.delete(tokenHash);
+    },
+    async listActivity(userId) {
+      return (seed.activity?.(userId) ?? []).map((r) => ({ ...r }));
+    },
+    async getVault(userId) {
+      const v = seed.vaults?.get(userId);
+      if (!v || v.status === "unbound") return undefined;
+      return v && { status: v.status, payerId: v.payerId ?? null, payerEmail: v.payerEmail ?? null, vaultRef: hash({ vaultId: v.vaultId }) };
+    },
+    async confirmVault(userId, payerId, vaultRef) {
+      const v = seed.vaults?.get(userId);
+      if (!v || v.status !== "pending" || v.payerId !== payerId || hash({ vaultId: v.vaultId }) !== vaultRef) {
+        return false;
+      }
+      v.status = "confirmed";
+      return true;
     },
     async listActiveMandates(userId) {
       return [...mandates.values()].filter((m) => m.userId === userId && m.status === "active").reverse();

@@ -7,6 +7,7 @@ import {
   PayPalApiError,
   approvalLink,
   firstAuthorization,
+  payerOf,
   savedWallet,
   type PayPalAuthorization,
   type PayPalOrder,
@@ -23,7 +24,10 @@ export type PaymentResponse =
   | { httpStatus: number; body: { error: string } };
 
 /** Fixed per order + operation (M2 follow-up): retries never move money twice. */
-export const paypalRequestId = (o: Pick<OrderRow, "requestId">, op: "authorize" | "capture" | "track" | "void") =>
+export const paypalRequestId = (
+  o: Pick<OrderRow, "requestId">,
+  op: "authorize" | "capture" | "track" | "void" | "refund",
+) =>
   `${o.requestId}-${op}`;
 
 const log = (ctx: GateContext, msg: string, fields: Record<string, unknown>) =>
@@ -106,7 +110,24 @@ async function authorized(
   }
   // Only a fully vaulted wallet is kept for agent payments without a redirect (D7).
   const vault = savedWallet(pp);
-  if (vault?.id && vault.status === "VAULTED") await ctx.store.saveVault(o.userId, vault.id, vault.customer?.id);
+  if (vault?.id && vault.status === "VAULTED") {
+    const payer = payerOf(pp);
+    const saved = await ctx.store.saveVault({
+      userId: o.userId,
+      vaultId: vault.id,
+      customerId: vault.customer?.id,
+      payerId: payer.payerId,
+      payerEmail: payer.email,
+    });
+    if (saved === "refused") {
+      await ctx.store.addReconciliation({
+        eventId: `api:${o.requestId}`,
+        eventType: "VAULT_PAYER_MISMATCH",
+        orderId: o.id,
+        note: "a different PayPal payer tried to replace this user's confirmed wallet; kept the confirmed one",
+      });
+    }
+  }
   const r = await refreshReceipt(ctx, o.id);
   if (!r) return { httpStatus: 502, body: { error: "PAYPAL_ERROR" } };
   log(ctx, "order authorized", { orderId: o.id, paypalOrderId: pp.id, authorizationId });
@@ -126,8 +147,9 @@ function paypalError(e: unknown): PaymentResponse {
 async function pay(ctx: GateContext, o: OrderRow): Promise<PaymentResponse> {
   const vaultId = await ctx.store.getVault(o.userId);
   const urls = {
-    returnUrl: `${new URL(ctx.webUrl).origin}/paypal/return?requestId=${o.requestId}`,
-    cancelUrl: `${new URL(ctx.webUrl).origin}/paypal/cancel?requestId=${o.requestId}`,
+    // No request id in the URLs (it would sit in browser history): PayPal appends ?token=<order id>.
+    returnUrl: `${new URL(ctx.webUrl).origin}/paypal/return`,
+    cancelUrl: `${new URL(ctx.webUrl).origin}/paypal/cancel`,
   };
   let pp: PayPalOrder;
   try {
@@ -243,6 +265,40 @@ export async function completePayment(ctx: GateContext, requestId: string): Prom
   return { httpStatus: 502, body: { error: "PAYPAL_ERROR" } };
 }
 
+/** The buyer came back from PayPal: finish by PayPal's order id; only the status goes back. */
+export async function completeByPayPalOrder(
+  ctx: GateContext,
+  paypalOrderId: string,
+  /** The signed-in wallet user whose browser came back from PayPal (vouched for by the web server). */
+  walletUserId?: string,
+): Promise<{ status: string }> {
+  const o = await ctx.store.findOrder({ paypalOrderId });
+  if (!o) return { status: "unknown" };
+  const r = await completePayment(ctx, o.requestId);
+  // The order's owner approved on PayPal in their own session: the saved wallet becomes confirmable.
+  if (walletUserId && walletUserId === o.userId) await ctx.store.bindVault(o.userId, undefined);
+  if (r.httpStatus === 200) return { status: (r.body as Receipt).status };
+  return { status: r.httpStatus === 202 ? "payer_action_required" : "failed" };
+}
+
+/** Full refund of a captured order (shopkeeper, after an explicit confirm). */
+export async function refundOrder(ctx: GateContext, orderId: string): Promise<Receipt> {
+  const o = await ctx.store.getOrder(orderId);
+  if (!o) throw new OrderStateError("unknown order");
+  if (o.status !== "captured" || !o.captureId) throw new OrderStateError(`order is ${o.status}, not captured`);
+  const r = await ctx.paypal.refundCapture(o.captureId, paypalRequestId(o, "refund"));
+  if (r.status === "COMPLETED") {
+    await move(ctx, o, "refunded", { refundId: r.id, refundedMinor: o.totalMinor });
+    log(ctx, "order refunded", { orderId: o.id, refundId: r.id });
+  } else {
+    // PENDING: PayPal confirms by webhook.
+    await ctx.store.patchOrder({ orderId: o.id, status: "captured", set: { refundId: r.id } });
+  }
+  const receipt = await refreshReceipt(ctx, o.id);
+  if (!receipt) throw new OrderStateError("no receipt");
+  return receipt;
+}
+
 /** POST /payments/:requestId (GET): the stored outcome. */
 export async function paymentStatus(ctx: GateContext, requestId: string): Promise<PaymentResponse> {
   const o = (await ctx.store.getPaymentRequest(requestId))?.order;
@@ -267,6 +323,19 @@ export async function fulfilOrder(
 ): Promise<Receipt> {
   const o = await ctx.store.getOrder(orderId);
   if (!o) throw new OrderStateError("unknown order");
+  // Tracking-only retry: captured, but the tracking call failed last time.
+  if (o.status === "captured" && input.fulfilled && input.trackingNumber && !o.trackingNumber && o.captureId && o.paypalOrderId) {
+    await ctx.paypal.addTracking(o.paypalOrderId, paypalRequestId(o, "track"), {
+      captureId: o.captureId,
+      trackingNumber: input.trackingNumber,
+      carrier: "OTHER",
+      carrierNameOther: "Handshake Courier",
+    });
+    await ctx.store.patchOrder({ orderId: o.id, status: "captured", set: { trackingNumber: input.trackingNumber } });
+    const r = await refreshReceipt(ctx, o.id);
+    if (!r) throw new OrderStateError("no receipt");
+    return r;
+  }
   if (o.status !== "authorized" || !o.authorizationId || !o.paypalOrderId) {
     throw new OrderStateError(`order is ${o.status}, not authorized`);
   }

@@ -11,3 +11,4 @@ coverage/
 
 # Prisma generated client
 **/generated/
+*.tsbuildinfo

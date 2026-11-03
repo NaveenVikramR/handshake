@@ -35,6 +35,8 @@ const Order = z.object({
   id: z.string().min(1),
   status: z.string(),
   links: z.array(Link).optional(),
+  // Who approved: the saved-wallet payer check (M8) compares this.
+  payer: z.object({ email_address: z.string().optional(), payer_id: z.string().optional() }).optional(),
   purchase_units: z
     .array(
       z.object({
@@ -49,6 +51,8 @@ const Order = z.object({
       paypal: z
         .object({
           // Docs samples use both spellings; read both.
+          email_address: z.string().optional(),
+          account_id: z.string().optional(),
           attributes: z.object({ vault: Vault.optional() }).optional(),
           attribute: z.object({ vault: Vault.optional() }).optional(),
         })
@@ -210,7 +214,7 @@ export function createPayPalClient(config: PayPalConfig) {
 
   async function call<T>(
     schema: z.ZodType<T>,
-    method: "GET" | "POST",
+    method: "GET" | "POST" | "PATCH",
     path: string,
     requestId?: string,
     body?: unknown,
@@ -359,6 +363,17 @@ export function createPayPalClient(config: PayPalConfig) {
     },
 
     /**
+     * Replaces the webhook's event types (JSON Patch `replace /event_types`; the whole list, so pass
+     * every type wanted). PATCH, not POST: PayPal defines no PayPal-Request-Id here, and the replace is
+     * idempotent by itself.
+     */
+    async updateWebhookEventTypes(webhookId: string, eventTypes: string[]): Promise<PayPalWebhook> {
+      return call(Webhook, "PATCH", `/v1/notifications/webhooks/${seg(webhookId)}`, undefined, [
+        { op: "replace", path: "/event_types", value: eventTypes.map((name) => ({ name })) },
+      ]);
+    },
+
+    /**
      * Asks PayPal whether a webhook delivery is genuine. Fails closed: missing
      * headers, a body that isn't a JSON object, or anything but SUCCESS → false.
      * The event is spliced in as the raw received text; re-serialising it can
@@ -396,6 +411,14 @@ export function approvalLink(order: PayPalOrder): string | undefined {
 
 export function firstAuthorization(order: PayPalOrder): PayPalAuthorization | undefined {
   return order.purchase_units?.[0]?.payments?.authorizations?.[0];
+}
+
+/** The PayPal account that approved the order (payer, or the paypal payment source). */
+export function payerOf(order: PayPalOrder): { payerId?: string; email?: string } {
+  const src = order.payment_source?.paypal;
+  const payerId = src?.account_id ?? order.payer?.payer_id;
+  const email = src?.email_address ?? order.payer?.email_address;
+  return { ...(payerId ? { payerId } : {}), ...(email ? { email } : {}) };
 }
 
 export function savedWallet(order: PayPalOrder): PayPalVault | undefined {

@@ -72,3 +72,65 @@ services:
         value: openai/gpt-oss-120b
       - key: LLM_API_KEY
         sync: false
+
+  # M8: wallet + phone approval + merchant dashboard. The name fixes https://handshake-web.onrender.com,
+  # which is the WebAuthn origin and RP ID everywhere: don't rename it.
+  - type: web
+    name: handshake-web
+    runtime: node
+    plan: free
+    region: ohio
+    buildCommand: >-
+      node scripts/require-env.mjs CONSUMER_URL MERCHANT_URL MERCHANT_ADMIN_TOKEN &&
+      npx -y pnpm@10.34.9 install --frozen-lockfile --filter "@handshake/web..." &&
+      npx -y pnpm@10.34.9 --filter @handshake/web build
+    startCommand: NODE_ENV=production npx -y pnpm@10.34.9 --filter @handshake/web start
+    healthCheckPath: /
+    envVars:
+      - key: NODE_VERSION
+        value: "24"
+      - key: CONSUMER_URL
+        value: https://handshake-consumer.onrender.com
+      - key: MERCHANT_URL
+        value: https://handshake-merchant.onrender.com
+      # The same value as on handshake-merchant: the web server adds it to dashboard calls.
+      - key: MERCHANT_ADMIN_TOKEN
+        sync: false
+
+  # M8: consumer agent + wallet API, reached only through handshake-web's server routes.
+  - type: web
+    name: handshake-consumer
+    runtime: node
+    plan: free
+    region: ohio
+    buildCommand: >-
+      node scripts/require-env.mjs DATABASE_URL CONSUMER_AGENT_ID CONSUMER_AGENT_PRIVATE_KEY LLM_API_KEY &&
+      npx -y pnpm@10.34.9 install --frozen-lockfile --filter "@handshake/consumer..."
+    startCommand: NODE_ENV=production npx -y pnpm@10.34.9 --filter @handshake/consumer start
+    healthCheckPath: /health
+    envVars:
+      - key: NODE_VERSION
+        value: "24"
+      - key: WEBAUTHN_ORIGIN
+        value: https://handshake-web.onrender.com
+      - key: WEBAUTHN_RP_ID
+        value: handshake-web.onrender.com
+      - key: WEBAUTHN_RP_NAME
+        value: Handshake
+      - key: WEB_URL
+        value: https://handshake-web.onrender.com
+      - key: MERCHANT_URL
+        value: https://handshake-merchant.onrender.com
+      - key: LLM_BASE_URL
+        value: https://api.groq.com/openai/v1
+      - key: LLM_MODEL
+        value: openai/gpt-oss-120b
+      # Same Neon dev branch as the merchant (D19); the merchant's build applies migrations.
+      - key: DATABASE_URL
+        sync: false
+      - key: CONSUMER_AGENT_ID
+        sync: false
+      - key: CONSUMER_AGENT_PRIVATE_KEY
+        sync: false
+      - key: LLM_API_KEY
+        sync: false

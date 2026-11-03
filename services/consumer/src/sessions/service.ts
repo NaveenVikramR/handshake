@@ -55,7 +55,9 @@ export async function finishLogin(
 ): Promise<{ token: string; userId: string; expiresAt: number }> {
   // Taken (and deleted) first, so each login challenge can be tried once.
   const login = await ctx.store.takeLoginChallenge(loginId, ctx.now());
-  if (!login) throw new HandshakeError("APPROVAL_EXPIRED", "login expired or already used");
+  if (!login || (login.payload as { type?: unknown } | null)?.type !== "wallet_login") {
+    throw new HandshakeError("APPROVAL_EXPIRED", "login expired or already used");
+  }
   const credential = await ctx.store.getCredential(assertion.credentialId);
   if (!credential || credential.userId !== login.userId) {
     throw new HandshakeError("APPROVAL_INVALID", "credential not registered to this user");

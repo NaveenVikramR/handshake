@@ -7,7 +7,9 @@ import {
   b64urlEncode,
   checkFreshness,
   hash,
+  shipToHash,
   verifyApprovalAssertion,
+  type ShipTo,
   type WebAuthnAssertion,
 } from "@handshake/core";
 import type { AppContext } from "../context.js";
@@ -16,7 +18,11 @@ import type { StoredApproval } from "../store.js";
 export const newApprovalId = () => `apr_${b64urlEncode(randomBytes(16))}`;
 
 /** Creates a pending approval for a cart. Called by the consumer agent (M6); amounts come from the verified offer. */
-export async function createApproval(ctx: AppContext, cart: unknown): Promise<{ id: string; hash: string }> {
+export async function createApproval(
+  ctx: AppContext,
+  cart: unknown,
+  shipTo?: ShipTo,
+): Promise<{ id: string; hash: string }> {
   const parsed = CartApproval.safeParse(cart);
   if (!parsed.success) throw new HandshakeError("SCHEMA_INVALID", "cart approval failed schema");
   const payload = parsed.data;
@@ -26,12 +32,22 @@ export async function createApproval(ctx: AppContext, cart: unknown): Promise<{ 
   }
   const id = newApprovalId();
   const h = hash(payload);
-  await ctx.store.createApproval({ id, userId: payload.userId, payload, hash: h, expiresAt: payload.exp * 1000 });
+  // Kept only if it is the address the cart commits to.
+  const address = shipTo && shipToHash(shipTo) === payload.shipToHash ? shipTo : undefined;
+  await ctx.store.createApproval({
+    id,
+    userId: payload.userId,
+    payload,
+    hash: h,
+    expiresAt: payload.exp * 1000,
+    ...(address ? { shipTo: address } : {}),
+  });
   return { id, hash: h };
 }
 
 function assertUsable(approval: StoredApproval | undefined, nowMs: number): StoredApproval {
   if (!approval) throw new HandshakeError("APPROVAL_INVALID", "unknown approval");
+  if (approval.status === "cancelled") throw new HandshakeError("APPROVAL_EXPIRED", "the chat that asked for it closed");
   if (approval.status !== "pending") throw new HandshakeError("APPROVAL_REPLAY", "approval already used");
   if (approval.expiresAt <= nowMs || checkFreshness(approval.payload, Math.floor(nowMs / 1000)) !== "ok") {
     throw new HandshakeError("APPROVAL_EXPIRED", "approval expired");

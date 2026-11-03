@@ -14,6 +14,7 @@ import {
   randomNonce,
   signPayload,
   type Authorization,
+  type ShipTo,
   type SignedOffer,
   type WebAuthnAssertion,
 } from "@handshake/core";
@@ -76,7 +77,10 @@ export async function awaitApproval(
   opts: { pollMs: number; signal?: AbortSignal },
 ): Promise<WebAuthnAssertion> {
   for (;;) {
-    if (opts.signal?.aborted) throw new HandshakeError("APPROVAL_EXPIRED", "chat cancelled before approval");
+    if (opts.signal?.aborted) {
+      await ctx.store.cancelApproval(approvalId);
+      throw new HandshakeError("APPROVAL_EXPIRED", "chat cancelled before approval");
+    }
     const a = await ctx.store.getApproval(approvalId);
     if (!a) throw new HandshakeError("APPROVAL_INVALID", "approval disappeared");
     if (a.status === "approved" && a.assertion) return a.assertion;
@@ -92,6 +96,7 @@ export interface CheckoutInput {
   categories: string[];
   /** From the signed-in wallet request, or the mandate's when omitted. Never from the LLM. */
   shipToHash: string | undefined;
+  shipTo?: ShipTo;
   /** Set → skip the mandate path and ask the human, with this reason. */
   forceStepUp?: string | undefined;
   emit: (e: CheckoutEvent) => void;
@@ -128,7 +133,7 @@ export async function authorize(
     };
   } else {
     input.emit({ type: "path", path: "step_up", reasons: decision.reasons });
-    const { id } = await createApproval(ctx, cart);
+    const { id } = await createApproval(ctx, cart, input.shipTo);
     input.emit({
       type: "approval_required",
       approvalId: id,

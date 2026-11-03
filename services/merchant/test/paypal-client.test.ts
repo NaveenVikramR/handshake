@@ -171,7 +171,12 @@ describe("createOrderAuthorize", () => {
 
   it("strips fields we don't use from the response", async () => {
     const { paypal } = client([TOKEN, { status: 201, body: order({ payer: { email_address: "x@y" }, extra: 1 }) }]);
-    expect(await paypal.createOrderAuthorize(input)).toEqual({ id: "ORDER-1", status: "CREATED" });
+    // payer is kept (saved-wallet payer check, M8); anything else is dropped.
+    expect(await paypal.createOrderAuthorize(input)).toEqual({
+      id: "ORDER-1",
+      status: "CREATED",
+      payer: { email_address: "x@y" },
+    });
   });
 });
 

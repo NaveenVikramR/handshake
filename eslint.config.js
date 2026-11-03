@@ -13,6 +13,10 @@ export default tseslint.config(
     },
   },
   {
+    files: ["apps/web/**/*.{ts,tsx}"],
+    languageOptions: { globals: { ...globals.browser, ...globals.node } },
+  },
+  {
     files: ["apps/passkey-hello/public/**/*.js"],
     languageOptions: { globals: globals.browser },
   },

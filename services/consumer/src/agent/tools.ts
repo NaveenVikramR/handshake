@@ -9,6 +9,7 @@ import {
   signEnvelope,
   type OfferRequest,
   type Receipt,
+  type ShipTo,
   type SignedOffer,
 } from "@handshake/core";
 import { z } from "zod";
@@ -63,6 +64,7 @@ export type AgentEvent =
 export interface ChatSession {
   userId: string;
   shipToHash: string | undefined;
+  shipTo?: ShipTo;
   merchants: Map<string, { client: MerchantClient; name: string }>;
   offers: Map<string, { offer: SignedOffer; merchantId: string }>;
   paid: Set<string>;
@@ -251,6 +253,7 @@ async function run(ctx: AppContext, agent: AgentConfig, s: ChatSession, name: To
           offer,
           categories: offer.payload.items.map((i) => category.get(i.sku) ?? ""),
           shipToHash: s.shipToHash,
+          ...(s.shipTo ? { shipTo: s.shipTo } : {}),
           forceStepUp,
           emit: s.emit,
           ...(s.signal ? { signal: s.signal } : {}),

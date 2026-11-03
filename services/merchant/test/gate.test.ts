@@ -15,6 +15,9 @@ async function payFirstTime(f: GateFixture, body: object) {
   f.paypal.approve(ppId);
   const done = await request(f.app).post(`/payments/${res.body.requestId}/complete`).send({});
   expect(done.status).toBe(200);
+  // The wallet user confirms the saved PayPal account with a passkey (M8); until then it never pays.
+  const v = f.gate.vaults.get("usr_alice");
+  if (v) v.status = "confirmed";
   return done.body as Receipt;
 }
 
@@ -50,7 +53,13 @@ describe("gate: passkey path, first-time payer then saved wallet", () => {
       "8",
       "9",
     ]);
-    expect(f.gate.vaults.get("usr_alice")).toMatch(/^VAULT-/);
+    expect(f.gate.vaults.get("usr_alice")).toMatchObject({
+      vaultId: expect.stringMatching(/^VAULT-/),
+      // Saved by the agent's completion: not confirmable until the owner returns from PayPal (D23).
+      status: "unbound",
+      payerId: "BUYERPAYER1",
+      payerEmail: "buyer@example.com",
+    });
     expect(f.paypal.calls.find((c) => c.op === "create")?.requestId).toBe(body.requestId);
   });
 
@@ -631,6 +640,114 @@ describe("review fixes: no authorization is left held without a live order", () 
     expect((await f.pay(f.passkeyRequest(o))).body).toEqual({ error: "PAYPAL_ERROR" });
     expect([...f.gate.orders.values()].find((x) => x.offerId === o.payload.offerId)?.status).toBe("failed");
     expect(stock(f)).toBe(before);
+  });
+});
+
+describe("saved-wallet payer check (M8)", () => {
+  it("an unconfirmed saved wallet never pays: the next order asks PayPal again", async () => {
+    const f = await gateFixture();
+    const body = f.passkeyRequest(await f.offer());
+    const res = await f.pay(body);
+    f.paypal.approve(new URL(res.body.approveUrl).searchParams.get("token")!);
+    await request(f.app).post(`/payments/${body.requestId}/complete`).send({});
+    expect(f.gate.vaults.get("usr_alice")?.status).toBe("unbound");
+    expect((await f.pay(f.passkeyRequest(await f.offer()))).status).toBe(202);
+  });
+
+  it("a different PayPal payer can't replace a confirmed wallet (phished approve link)", async () => {
+    const f = await gateFixture();
+    await payFirstTime(f, f.passkeyRequest(await f.offer()));
+    const confirmed = { ...f.gate.vaults.get("usr_alice")! };
+    // Someone else's PayPal account approves a save for this user (a phished approve link).
+    const saved = await f.gate.store.saveVault({ userId: "usr_alice", vaultId: "VAULT-EVIL", payerId: "VICTIMPAYER9" });
+    expect(saved).toBe("refused");
+    expect(f.gate.vaults.get("usr_alice")).toMatchObject({ vaultId: confirmed.vaultId, payerId: "BUYERPAYER1" });
+  });
+
+  it("the same payer re-saving keeps the wallet confirmed", async () => {
+    const f = await gateFixture();
+    await payFirstTime(f, f.passkeyRequest(await f.offer()));
+    expect(await f.gate.store.saveVault({ userId: "usr_alice", vaultId: "VAULT-NEW", payerId: "BUYERPAYER1" })).toBe("kept");
+    expect(f.gate.vaults.get("usr_alice")).toMatchObject({ vaultId: "VAULT-NEW", status: "confirmed" });
+  });
+});
+
+describe("dashboard API (M8)", () => {
+  const admin = (r: request.Test) => r.set("authorization", `Bearer ${ADMIN}`);
+
+  it("needs the admin token for the feed, refunds and the assistant; /paypal/return is public", async () => {
+    const f = await gateFixture();
+    expect((await request(f.app).get("/dashboard/recent")).status).toBe(401);
+    expect((await request(f.app).post("/orders/ord_x/refund").send({})).status).toBe(401);
+    expect((await request(f.app).post("/assistant").send({ message: "hi" })).status).toBe(401);
+    expect((await request(f.app).post("/paypal/return").send({ token: "NOPE1" })).body).toEqual({ status: "unknown" });
+  });
+
+  it("feed rows carry every decision, the outcome and the order's PayPal ids", async () => {
+    const f = await gateFixture();
+    await payFirstTime(f, f.passkeyRequest(await f.offer()));
+    await f.pay(f.passkeyRequest(await f.offer(), {}, { uv: false }));
+    const rows = (await admin(request(f.app).get("/dashboard/recent"))).body.requests as {
+      outcome: string;
+      failedCode: string | null;
+      decisions: unknown[];
+      order: { paypalOrderId: string | null } | null;
+    }[];
+    const blocked = rows.find((r) => r.outcome === "blocked")!;
+    expect(blocked.failedCode).toBe("APPROVAL_UV_MISSING");
+    const ok = rows.find((r) => r.outcome === "allowed")!;
+    expect(ok.decisions).toHaveLength(9);
+    expect(ok.order?.paypalOrderId).toMatch(/^ORD/);
+  });
+
+  it("PayPal return by PayPal's token finishes the order and returns only the status", async () => {
+    const f = await gateFixture();
+    const res = await f.pay(f.passkeyRequest(await f.offer()));
+    const token = new URL(res.body.approveUrl).searchParams.get("token")!;
+    f.paypal.approve(token);
+    const back = await request(f.app).post("/paypal/return").send({ token });
+    expect(back.body).toEqual({ status: "authorized" });
+    // PayPal return/cancel URLs carry no request id.
+    const create = f.paypal.calls.find((c) => c.op === "create")!.args as { returnUrl: string; cancelUrl: string };
+    expect(create.returnUrl).toBe("https://wallet.handshake.test/paypal/return");
+    expect(create.cancelUrl).not.toContain("req_");
+  });
+
+  it("refund after confirm: captured → refunded, with its own request id", async () => {
+    const f = await gateFixture();
+    await payFirstTime(f, f.passkeyRequest(await f.offer()));
+    const o = [...f.gate.orders.values()][0]!;
+    await admin(request(f.app).post(`/orders/${o.id}/fulfil`)).send({ fulfilled: true });
+    const res = await admin(request(f.app).post(`/orders/${o.id}/refund`)).send({});
+    expect(res.body.status).toBe("refunded");
+    expect(f.paypal.calls.find((c) => c.op === "refund")?.requestId).toBe(`${o.requestId}-refund`);
+    expect((await admin(request(f.app).post(`/orders/${o.id}/refund`)).send({})).status).toBe(409);
+  });
+
+  it("tracking-only retry on a captured order without tracking", async () => {
+    const f = await gateFixture();
+    await payFirstTime(f, f.passkeyRequest(await f.offer()));
+    const o = [...f.gate.orders.values()][0]!;
+    await admin(request(f.app).post(`/orders/${o.id}/fulfil`)).send({ fulfilled: true });
+    const res = await admin(request(f.app).post(`/orders/${o.id}/fulfil`)).send({ fulfilled: true, trackingNumber: "TRK-9" });
+    expect(res.body).toMatchObject({ status: "captured", trackingNumber: "TRK-9" });
+    expect(f.paypal.calls.filter((c) => c.op === "capture")).toHaveLength(1);
+  });
+});
+
+describe("saved-wallet binding (D23 review fix)", () => {
+  it("only the order's owner returning from PayPal (vouched by the web server) makes the wallet confirmable", async () => {
+    const f = await gateFixture();
+    const res = await f.pay(f.passkeyRequest(await f.offer()));
+    const token = new URL(res.body.approveUrl).searchParams.get("token")!;
+    f.paypal.approve(token);
+    // A direct (unvouched) return, or one vouched for someone else, authorizes but doesn't bind.
+    await request(f.app).post("/paypal/return").send({ token, walletUserId: "usr_alice" });
+    expect(f.gate.vaults.get("usr_alice")?.status).toBe("unbound");
+    await request(f.app).post("/paypal/return").set("authorization", `Bearer ${ADMIN}`).send({ token, walletUserId: "usr_mallory" });
+    expect(f.gate.vaults.get("usr_alice")?.status).toBe("unbound");
+    await request(f.app).post("/paypal/return").set("authorization", `Bearer ${ADMIN}`).send({ token, walletUserId: "usr_alice" });
+    expect(f.gate.vaults.get("usr_alice")?.status).toBe("pending");
   });
 });
 

@@ -20,7 +20,6 @@ export const MANDATE_SIGN_WINDOW_MS = 5 * 60_000;
 export const MAX_MANDATE_DAYS = 30;
 
 export const MandateRequest = z.strictObject({
-  userId: z.string().min(1).max(64),
   merchants: z.array(z.string()).min(1).max(50),
   categories: z.array(z.string()).min(1).max(50),
   perOrderMinor: z.int().positive(),
@@ -34,7 +33,7 @@ export type MandateRequest = z.infer<typeof MandateRequest>;
 /** Builds and stores a pending mandate. Every field the human approves is set here, not by the client. */
 export async function createMandate(
   ctx: AppContext,
-  req: MandateRequest,
+  req: MandateRequest & { userId: string },
 ): Promise<{ mandateId: string; mandate: IntentMandate; hash: string; merchants: { id: string; name: string }[] }> {
   if (!(await ctx.store.userExists(req.userId)) || !(await ctx.store.hasCredentials(req.userId))) {
     throw new HandshakeError("MANDATE_INVALID", "user has no passkey");

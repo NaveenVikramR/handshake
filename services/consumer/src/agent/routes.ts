@@ -32,7 +32,7 @@ export function chatRouter(ctx: AppContext): Router {
         {
           userId,
           message: body.data.message,
-          ...(body.data.shipTo ? { shipToHash: shipToHash(body.data.shipTo) } : {}),
+          ...(body.data.shipTo ? { shipToHash: shipToHash(body.data.shipTo), shipTo: body.data.shipTo } : {}),
         },
         send,
         { signal: abort.signal },

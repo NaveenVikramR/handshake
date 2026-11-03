@@ -5,6 +5,8 @@ import { PayPalApiError, type PayPalClient, type PayPalOrder } from "../src/payp
 type Calls = { op: string; requestId?: string; args: unknown }[];
 
 export function fakePayPal(opts: { autoApprove?: boolean } = {}) {
+  /** The sandbox buyer who approves; tests switch it to model a phished approval. */
+  const payer = { id: "BUYERPAYER1", email: "buyer@example.com" };
   const calls: Calls = [];
   const orders = new Map<string, PayPalOrder>();
   const byRequest = new Map<string, unknown>();
@@ -20,7 +22,12 @@ export function fakePayPal(opts: { autoApprove?: boolean } = {}) {
     id,
     status: "COMPLETED",
     purchase_units: [{ payments: { authorizations: [{ id: `AUTH${id}`, status: "CREATED" }] } }],
-    ...(vault ? { payment_source: { paypal: { attributes: { vault: { id: vault, status: "VAULTED" } } } } } : {}),
+    ...(vault
+      ? {
+          payer: { payer_id: payer.id, email_address: payer.email },
+          payment_source: { paypal: { attributes: { vault: { id: vault, status: "VAULTED" } } } },
+        }
+      : {}),
   });
 
   const client: Pick<
@@ -31,6 +38,7 @@ export function fakePayPal(opts: { autoApprove?: boolean } = {}) {
     | "captureAuthorization"
     | "voidAuthorization"
     | "addTracking"
+    | "refundCapture"
   > = {
     async createOrderAuthorize(input) {
       calls.push({ op: "create", requestId: input.requestId, args: input });
@@ -73,6 +81,10 @@ export function fakePayPal(opts: { autoApprove?: boolean } = {}) {
       calls.push({ op: "void", requestId, args: authId });
       return once("void", requestId, () => ({ id: authId, status: "VOIDED" }));
     },
+    async refundCapture(captureId, requestId) {
+      calls.push({ op: "refund", requestId, args: captureId });
+      return once("refund", requestId, () => ({ id: `REF${captureId}`, status: "COMPLETED" }));
+    },
     async addTracking(orderId, requestId, input) {
       calls.push({ op: "track", requestId, args: { orderId, ...input } });
       return once("track", requestId, () => ({ id: orderId, status: "COMPLETED" }));
@@ -83,5 +95,5 @@ export function fakePayPal(opts: { autoApprove?: boolean } = {}) {
     const o = orders.get(paypalOrderId);
     if (o) o.status = "APPROVED";
   };
-  return { client, calls, orders, approve, fail };
+  return { client, calls, orders, approve, fail, payer };
 }

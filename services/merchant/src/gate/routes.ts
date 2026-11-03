@@ -3,6 +3,7 @@ import { timingSafeEqual } from "node:crypto";
 import express, { Router, type RequestHandler } from "express";
 import { z } from "zod";
 import { PayPalApiError } from "../paypal/client.js";
+import { rateLimiter } from "../webhooks/router.js";
 import { OrderStateError, completePayment, fulfilOrder, handlePayment, paymentStatus } from "./settle.js";
 import type { GateContext } from "./verify.js";
 
@@ -17,7 +18,7 @@ const FulfilBody = z.strictObject({
 });
 
 /** Bearer MERCHANT_ADMIN_TOKEN, compared in constant time. */
-function requireAdmin(token: string): RequestHandler {
+export function requireAdmin(token: string): RequestHandler {
   const expected = Buffer.from(`Bearer ${token}`);
   return (req, res, next) => {
     const given = Buffer.from(req.get("authorization") ?? "");
@@ -31,6 +32,8 @@ function requireAdmin(token: string): RequestHandler {
 export function gateRouter(ctx: GateContext, opts: { adminToken: string }): Router {
   if (opts.adminToken.length < 24) throw new Error("MERCHANT_ADMIN_TOKEN must be at least 24 characters");
   const router = Router();
+  // Per client IP; the consumer service polls for all its users from one address.
+  const completes = rateLimiter(300, 60_000);
 
   router.post("/payments", express.json({ limit: "64kb" }), async (req, res) => {
     const r = await handlePayment(ctx, req.body);
@@ -45,6 +48,7 @@ export function gateRouter(ctx: GateContext, opts: { adminToken: string }): Rout
   });
 
   router.post("/payments/:requestId/complete", async (req, res) => {
+    if (!completes(req.ip ?? "unknown")) return void res.status(429).json({ error: "RATE_LIMITED" });
     const id = RequestId.safeParse(req.params.requestId);
     if (!id.success) return void res.status(400).json({ error: "SCHEMA_INVALID" });
     const r = await completePayment(ctx, id.data);
