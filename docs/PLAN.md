@@ -70,16 +70,8 @@ Accept: chat request ends in a receipt; LLM cannot change amounts (test).
 Accept: happy path end-to-end in sandbox.
 
 ## M8 Web UI — Fri 6 Nov
-- [ ] wallet (passkey setup, mandates, activity), phone approval page showing exact cart (built in apps/web, API-tested and `next build` clean; tick after a browser + phone run on Render)
-- [ ] Render web service named `handshake-web` in render.yaml (serves apps/web at https://handshake-web.onrender.com); the merchant's `WEB_URL`/`WEBAUTHN_ORIGIN`/`WEBAUTHN_RP_ID` on Render already point there, so the name must not change
-- [ ] register/authenticate endpoints; challenge = `hash(payload)` (moved from M3)
 - [x] `GET /mandates/:id` renders the mandate from server state (as approvals do) so the human approves what was stored, not what the client drew; mandate revocation (status `revoked`, checked by the gate)
-- [ ] M6 follow-ups: `deleteSession` (logout) and session revocation; mark a pending approval cancelled when its chat closes; pin each `MERCHANT_URL` to its `merchantId` and refuse duplicates (done in M8: logout, cancel on chat close; left: URL→merchantId pin)
 - [x] Saved-wallet payer check: before a vault id is used for agent payments, the wallet shows the PayPal payer (email) and the user confirms with a passkey; a later payer that differs is refused, so a phished approve link can't attach someone else's wallet (D22)
-- [ ] M7 follow-ups (D22): opaque per-order token in PayPal return URLs instead of the request id, and rate-limit `/payments/:id/complete`; tracking-only retry for a captured order whose tracking call failed; void the authorization when a webhook reports a declined capture; `pnpm paypal:webhook` can't add `PAYMENT.CAPTURE.REVERSED` to the existing webhook (PATCH it, or re-create); confirm the REVERSED resource shape in `docs/PAYPAL.md` (done in M8: no request id in return URLs, `/complete` rate limit, tracking-only retry, webhook PATCH in `pnpm paypal:webhook`, PAYPAL.md notes; left: void on webhook-declined capture, run `pnpm paypal:webhook` once, confirm REVERSED/REFUNDED and authorize-payer shapes in sandbox)
-- [ ] merchant dashboard: live SSE feed of agents, decisions, PayPal states (built + API-tested; tick after a browser run)
-- [ ] shopkeeper assistant panel via `@paypal/agent-toolkit` (confirm before acting) (built: read-only toolkit, refund proposals + confirm card, tested with a scripted model; tick after a live LLM run)
-- [ ] M8 low findings: throttle `GET /wallet/paypal` challenge rows (reuse a live one); consumer is publicly reachable on Render, so keep every route self-authenticating
 Accept: full demo runs from the UI on laptop + phone.
 
 ## M9 Attack suite + eval — Sat 7 Nov  (SPEC §11)
@@ -93,6 +85,14 @@ Accept: 0 unauthorized authorizations, 0 duplicate charges.
 - [ ] Low findings: `signEnvelope` runtime type check, bound `holdUntil` (≤ 15 min from `iat`), generic error messages in HTTP responses (detail only in decisions log)
 - [ ] M6 low findings: `/passkeys/login/options` rate-limited per IP and user, pending challenges capped and expired rows swept, same response for unknown users; step-up requires an explicit `shipTo`
 - [ ] M3 low findings: rate-limit `/passkeys/register/options` (each call inserts a user row) or create the user only on verify; map an approval that expires mid-verify to `APPROVAL_EXPIRED` instead of `APPROVAL_REPLAY`
+- [ ] wallet (passkey setup, mandates, activity), phone approval page showing exact cart (built in apps/web, API-tested and `next build` clean; tick after a browser + phone run on Render) (moved from M8)
+- [ ] Render web service named `handshake-web` in render.yaml (serves apps/web at https://handshake-web.onrender.com); the merchant's `WEB_URL`/`WEBAUTHN_ORIGIN`/`WEBAUTHN_RP_ID` on Render already point there, so the name must not change (moved from M8)
+- [ ] register/authenticate endpoints; challenge = `hash(payload)` (moved from M3) (moved from M8)
+- [ ] merchant dashboard: live SSE feed of agents, decisions, PayPal states (built + API-tested; tick after a browser run) (moved from M8)
+- [ ] shopkeeper assistant panel via `@paypal/agent-toolkit` (confirm before acting) (built: read-only toolkit, refund proposals + confirm card, tested with a scripted model; tick after a live LLM run) (moved from M8)
+- [ ] M6 follow-ups: `deleteSession` (logout) and session revocation; mark a pending approval cancelled when its chat closes; pin each `MERCHANT_URL` to its `merchantId` and refuse duplicates (done in M8: logout, cancel on chat close; left: URL→merchantId pin) (moved from M8)
+- [ ] M7 follow-ups (D22): opaque per-order token in PayPal return URLs instead of the request id, and rate-limit `/payments/:id/complete`; tracking-only retry for a captured order whose tracking call failed; void the authorization when a webhook reports a declined capture; `pnpm paypal:webhook` can't add `PAYMENT.CAPTURE.REVERSED` to the existing webhook (PATCH it, or re-create); confirm the REVERSED resource shape in `docs/PAYPAL.md` (done in M8: no request id in return URLs, `/complete` rate limit, tracking-only retry, webhook PATCH in `pnpm paypal:webhook` (run 4 Nov: all 8 event types subscribed), PAYPAL.md notes; left: void on webhook-declined capture, confirm REVERSED/REFUNDED and authorize-payer shapes in sandbox) (moved from M8)
+- [ ] M8 low findings: throttle `GET /wallet/paypal` challenge rows (reuse a live one); consumer is publicly reachable on Render, so keep every route self-authenticating (moved from M8)
 
 ## M11 Ship — Mon 9 Nov
 - [ ] Render deploy (3 services) pointing at the Neon `main` branch; migrations applied there; health checks (merchant already on Render against `dev`, D19: switch `DATABASE_URL`/`DIRECT_URL` to `main`, seed it)
