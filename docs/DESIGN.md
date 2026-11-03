@@ -1,29 +1,30 @@
-# Design brief (M8)
+# Handshake — Design brief (M8)
 
 ## Feel
-Calm, trustworthy fintech. Light theme, one accent colour, generous spacing, system font stack. No stock illustrations. Status colours only where they carry meaning: green = allowed, amber = step-up, red = blocked. Must look good in a 1080p screen recording and on an iPhone screen.
+Calm, trustworthy fintech. Light theme only. One accent: #2F5BEA (blue). Neutrals: #0F172A text, #475569 muted, #E2E8F0 borders, #F8FAFC page bg, white cards.
+Status colours only for status: green #16A34A allowed/paid, amber #D97706 step-up/held, red #DC2626 blocked/voided.
+System font stack. Sizes: 14 body, 16 mobile body, 20 headings, 40 totals. 8px spacing grid, 12px card radius, soft 1px borders, no heavy shadows. No stock illustrations or emoji in UI.
 
-## Phone approval page — the hero of the demo (mobile-first)
-- Merchant name with a "verified merchant" badge (from the trust registry, never the agent card).
-- Each item with qty and price; the total in large type; ship-to; a countdown to the approval's expiry.
-- One full-width "Approve with Face ID" button. Show only fields from the stored cart (`GET /approvals/:id`): what is shown is exactly what is hashed and signed.
-- Clear end states: success (approved, payment held until delivery) and blocked/expired, each with a one-line reason.
+## Phone approval page (/approve/:id) — the demo hero, mobile-first
+- Top: merchant name + "Verified merchant" badge (check icon, green) or red "Unverified" banner.
+- Items: name, qty × unit price, line total. Total in 40px bold. Ship-to (one line). "Expires in 4:52" countdown; at 0 the button disables.
+- One full-width 56px button: "Approve with Face ID" (label "Approve with passkey" on non-Apple devices).
+- States: loading spinner in button → success screen (big green check, "Approved. Payment held until delivery.") → or blocked screen (red, one-line reason, no retry button).
+- Everything readable without zooming on an iPhone; no horizontal scroll.
 
-## Wallet
-- Passkey status (registered, last used).
-- Active mandates as limit bars: spent vs the period limit (e.g. $60 of $80 this week), plus scope (merchants, categories) and expiry.
-- Recent activity with order state in words: held (authorized), paid (captured), voided, refunded.
+## Wallet (/wallet)
+- Passkey card: device name, created date, status dot.
+- Mandates: each a card with scope (merchants, categories) and two bars: per-order limit, weekly spent vs limit (e.g. "$24.95 of $80.00 this week").
+- Activity list: merchant, total, time, state pill: Held (amber), Paid (green), Voided (grey), Refunded (grey), Blocked (red + reason).
 
-## Merchant dashboard
-- Live feed (SSE) of incoming agent requests: agent, user, total, path (passkey / mandate), result colour.
-- Each row expands to the 9 gate checks with ✓/✗ and the reason, in SPEC §6 order.
-- PayPal state per order (approve pending, authorized, captured, voided, refunded), with fulfil/void actions.
+## Merchant dashboard (/merchant)
+- Live feed (SSE), newest on top, row = time, consumer agent id (short), total, outcome pill.
+- Row expands to the 9 gate checks in order, each ✓/✗ with a short reason; failing check highlighted red.
+- Right column: PayPal state per order (authorized → captured / voided / refunded) with order and capture ids (copy button).
+- Shopkeeper assistant panel below: chat box; any money action shows a confirm card before running.
 
-## Human reasons, not codes
-Every blocked request shows one plain line; the code stays in the expandable detail. For example:
-- `CART_HASH_MISMATCH` / `CART_MISMATCH` → "Amount changed after approval"
-- `APPROVAL_REPLAY` / `OFFER_USED` → "This approval was already used"
-- `APPROVAL_EXPIRED` / `OFFER_EXPIRED` → "Approval timed out"
-- `MANDATE_LIMIT` → "Over the weekly limit"; `MANDATE_SCOPE` → "Outside what you allowed"
-- `AGENT_UNTRUSTED` / `MERCHANT_UNTRUSTED` → "Unknown agent" / "Merchant not verified"
-- `STEP_UP_REQUIRED` → "Needs your approval on your phone"; `RISK_BLOCKED` → "Blocked as unusual"
+## Human reasons (never show raw codes in UI; code in a small grey tooltip)
+CART_HASH_MISMATCH "Cart changed after you approved it" · OFFER_SIG_INVALID "Offer not signed by this merchant" · MERCHANT_UNTRUSTED "Unknown merchant" · AGENT_UNTRUSTED "Unknown shopping agent" · AGENT_SIG_INVALID "Request not signed by your agent" · APPROVAL_REPLAY "This approval was already used" · APPROVAL_EXPIRED "Approval expired" · APPROVAL_UV_MISSING "Face ID / fingerprint not confirmed" · MANDATE_LIMIT "Over your spending limit" · MANDATE_SCOPE "Shop or category not allowed" · OFFER_EXPIRED "Offer expired" · RISK_BLOCKED "Blocked as suspicious" · STEP_UP_REQUIRED "Needs your approval".
+
+## Recording
+Test at 1920×1080 (dashboard) and 390×844 (iPhone). Body text ≥14px on desktop so it survives video compression.
