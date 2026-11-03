@@ -80,6 +80,7 @@ export async function gateFixture(
     },
   };
   const clock = { t: Date.now() };
+  const webhookSig = { valid: true };
   const logs: string[] = [];
   const ctx: GateContext = {
     store: gate.store,
@@ -94,7 +95,8 @@ export async function gateFixture(
   };
   const app = createApp({
     webhooks: {
-      paypal: { verifyWebhook: async () => true },
+      // Attack cases flip this to model a forged delivery (PayPal answers FAILURE).
+      paypal: { verifyWebhook: async () => webhookSig.valid },
       store: memoryWebhookStore(),
       webhookId: "WH",
       onOrderEvent: orderEventHandler(gate.store),
@@ -212,6 +214,7 @@ export async function gateFixture(
     risk,
     riskCalls,
     clock,
+    webhookSig,
     logs,
     auth,
     mandates,

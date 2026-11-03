@@ -1,0 +1,12 @@
+{
+  "name": "@handshake/attacks",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "typecheck": "tsc -p ."
+  },
+  "devDependencies": {
+    "@types/supertest": "7.2.1",
+    "supertest": "7.3.1"
+  }
+}

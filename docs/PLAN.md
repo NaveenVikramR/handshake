@@ -75,8 +75,8 @@ Accept: happy path end-to-end in sandbox.
 Accept: full demo runs from the UI on laptop + phone.
 
 ## M9 Attack suite + eval — Sat 7 Nov  (SPEC §11)
-- [ ] ≥50 cases covering every SPEC §11 item; `pnpm attack` prints table
-- [ ] `docs/EVAL.md` generated with counts and per-attack result
+- [x] ≥50 cases covering every SPEC §11 item; `pnpm attack` prints table
+- [x] `docs/EVAL.md` generated with counts and per-attack result
 Accept: 0 unauthorized authorizations, 0 duplicate charges.
 
 ## M10 Polish — Sun 8 Nov
@@ -84,6 +84,7 @@ Accept: 0 unauthorized authorizations, 0 duplicate charges.
 - [ ] error messages human-readable on dashboard
 - [ ] Low findings: `signEnvelope` runtime type check, bound `holdUntil` (≤ 15 min from `iat`), generic error messages in HTTP responses (detail only in decisions log)
 - [ ] M6 low findings: `/passkeys/login/options` rate-limited per IP and user, pending challenges capped and expired rows swept, same response for unknown users; step-up requires an explicit `shipTo`
+- [ ] M9 low finding: `GET`/`POST /payments` step 2 returns a stored receipt for a known `requestId` before any signature check; require the agent signature (or return status only) so a leaked request id can't read the receipt
 - [ ] M3 low findings: rate-limit `/passkeys/register/options` (each call inserts a user row) or create the user only on verify; map an approval that expires mid-verify to `APPROVAL_EXPIRED` instead of `APPROVAL_REPLAY`
 - [ ] wallet (passkey setup, mandates, activity), phone approval page showing exact cart (built in apps/web, API-tested and `next build` clean; tick after a browser + phone run on Render) (moved from M8)
 - [ ] Render web service named `handshake-web` in render.yaml (serves apps/web at https://handshake-web.onrender.com); the merchant's `WEB_URL`/`WEBAUTHN_ORIGIN`/`WEBAUTHN_RP_ID` on Render already point there, so the name must not change (moved from M8)

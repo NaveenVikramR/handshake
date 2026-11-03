@@ -176,6 +176,15 @@ importers:
         specifier: 7.3.1
         version: 7.3.1
 
+  tests/attacks:
+    devDependencies:
+      '@types/supertest':
+        specifier: 7.2.1
+        version: 7.2.1
+      supertest:
+        specifier: 7.3.1
+        version: 7.3.1
+
 packages:
 
   '@ai-sdk/provider-utils@2.2.8':
