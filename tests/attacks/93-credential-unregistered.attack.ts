@@ -4,7 +4,7 @@ import { WEBAUTHN } from "../../services/merchant/test/gate-fixture.js";
 import { defineAttack } from "./harness.js";
 
 export default defineAttack({
-  id: "A89",
+  id: "A93",
   title: "Assertion from a passkey the registry doesn't know",
   category: "webauthn",
   spec: "Wrong origin/rpId",

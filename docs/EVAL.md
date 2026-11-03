@@ -18,8 +18,8 @@ the step-5 currency comparison is defence in depth that this suite doesn't reach
 
 | | Count |
 |---|---|
-| Cases | 90 (3 controls, 87 attacks) |
-| Passed | 90 |
+| Cases | 94 (3 controls, 91 attacks) |
+| Passed | 94 |
 | SPEC §11 items covered | 25 |
 | Unauthorized authorizations | 0 |
 | Duplicate charges | 0 |
@@ -100,19 +100,23 @@ the step-5 currency comparison is defence in depth that this suite doesn't reach
 | A71 | Duplicate requestId | Same requestId reused for a different offer | `DUPLICATE_REQUEST` | `DUPLICATE_REQUEST` | no | ✅ |
 | A72 | Duplicate requestId | Same request sent five times at once | `DUPLICATE_REQUEST` | `DUPLICATE_REQUEST` | no | ✅ |
 | A73 | Duplicate requestId | Fulfil sent twice: one capture | `HTTP_409` | `HTTP_409` | no | ✅ |
-| A74 | Duplicate webhook | Capture-completed webhook delivered twice | `webhook:duplicate` | `webhook:duplicate` | no | ✅ |
-| A75 | Duplicate webhook | Partial-refund webhook delivered twice | `webhook:duplicate` | `webhook:duplicate` | no | ✅ |
-| A76 | Forged webhook | Forged void webhook for a held order | `webhook:forged` | `webhook:forged` | no | ✅ |
-| A77 | Forged webhook | Forged capture-completed webhook (paid without a capture) | `webhook:forged` | `webhook:forged` | no | ✅ |
-| A78 | Forged webhook | Webhook without PayPal's transmission headers | `webhook:forged` | `webhook:forged` | no | ✅ |
-| A79 | Forged webhook | Simulated webhook without the demo secret | `webhook:unauthorized` | `webhook:unauthorized` | no | ✅ |
-| A80 | UV flag missing | Assertion without user verification | `APPROVAL_UV_MISSING` | `APPROVAL_UV_MISSING` | no | ✅ |
-| A81 | UV flag missing | Assertion without user presence | `APPROVAL_INVALID` | `APPROVAL_INVALID` | no | ✅ |
-| A82 | signCount rollback | Sign count rolled back to 0 after use | `APPROVAL_INVALID` | `APPROVAL_INVALID` | no | ✅ |
-| A83 | signCount rollback | Sign count repeated (cloned authenticator) | `APPROVAL_INVALID` | `APPROVAL_INVALID` | no | ✅ |
-| A84 | Wrong origin/rpId | Assertion made on another origin | `APPROVAL_INVALID` | `APPROVAL_INVALID` | no | ✅ |
-| A85 | Wrong origin/rpId | Assertion made on a look-alike subdomain origin | `APPROVAL_INVALID` | `APPROVAL_INVALID` | no | ✅ |
-| A86 | Wrong origin/rpId | Assertion scoped to another RP id | `APPROVAL_INVALID` | `APPROVAL_INVALID` | no | ✅ |
-| A87 | Wrong origin/rpId | Registration ceremony data passed off as an assertion | `APPROVAL_INVALID` | `APPROVAL_INVALID` | no | ✅ |
-| A88 | Wrong origin/rpId | Assertion over a different payload's hash | `CART_HASH_MISMATCH` | `CART_HASH_MISMATCH` | no | ✅ |
-| A89 | Wrong origin/rpId | Assertion from a passkey the registry doesn't know | `APPROVAL_INVALID` | `APPROVAL_INVALID` | no | ✅ |
+| A74 | Duplicate requestId | Another registered agent replays a known requestId: no receipt | `AGENT_UNTRUSTED` | `AGENT_UNTRUSTED` | no | ✅ |
+| A75 | Duplicate requestId | Known requestId replayed under the original agent's id with a forged signature | `AGENT_SIG_INVALID` | `AGENT_SIG_INVALID` | no | ✅ |
+| A76 | Duplicate requestId | /complete with only a leaked requestId: no receipt | `SCHEMA_INVALID` | `SCHEMA_INVALID` | no | ✅ |
+| A77 | Duplicate requestId | /complete for a leaked requestId signed by another registered agent | `UNKNOWN_REQUEST` | `UNKNOWN_REQUEST` | no | ✅ |
+| A78 | Duplicate webhook | Capture-completed webhook delivered twice | `webhook:duplicate` | `webhook:duplicate` | no | ✅ |
+| A79 | Duplicate webhook | Partial-refund webhook delivered twice | `webhook:duplicate` | `webhook:duplicate` | no | ✅ |
+| A80 | Forged webhook | Forged void webhook for a held order | `webhook:forged` | `webhook:forged` | no | ✅ |
+| A81 | Forged webhook | Forged capture-completed webhook (paid without a capture) | `webhook:forged` | `webhook:forged` | no | ✅ |
+| A82 | Forged webhook | Webhook without PayPal's transmission headers | `webhook:forged` | `webhook:forged` | no | ✅ |
+| A83 | Forged webhook | Simulated webhook without the demo secret | `webhook:unauthorized` | `webhook:unauthorized` | no | ✅ |
+| A84 | UV flag missing | Assertion without user verification | `APPROVAL_UV_MISSING` | `APPROVAL_UV_MISSING` | no | ✅ |
+| A85 | UV flag missing | Assertion without user presence | `APPROVAL_INVALID` | `APPROVAL_INVALID` | no | ✅ |
+| A86 | signCount rollback | Sign count rolled back to 0 after use | `APPROVAL_INVALID` | `APPROVAL_INVALID` | no | ✅ |
+| A87 | signCount rollback | Sign count repeated (cloned authenticator) | `APPROVAL_INVALID` | `APPROVAL_INVALID` | no | ✅ |
+| A88 | Wrong origin/rpId | Assertion made on another origin | `APPROVAL_INVALID` | `APPROVAL_INVALID` | no | ✅ |
+| A89 | Wrong origin/rpId | Assertion made on a look-alike subdomain origin | `APPROVAL_INVALID` | `APPROVAL_INVALID` | no | ✅ |
+| A90 | Wrong origin/rpId | Assertion scoped to another RP id | `APPROVAL_INVALID` | `APPROVAL_INVALID` | no | ✅ |
+| A91 | Wrong origin/rpId | Registration ceremony data passed off as an assertion | `APPROVAL_INVALID` | `APPROVAL_INVALID` | no | ✅ |
+| A92 | Wrong origin/rpId | Assertion over a different payload's hash | `CART_HASH_MISMATCH` | `CART_HASH_MISMATCH` | no | ✅ |
+| A93 | Wrong origin/rpId | Assertion from a passkey the registry doesn't know | `APPROVAL_INVALID` | `APPROVAL_INVALID` | no | ✅ |

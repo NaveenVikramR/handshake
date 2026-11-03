@@ -12,7 +12,7 @@ export default defineAttack({
   async run(h) {
     const { request: pr } = await h.happyPathRequest();
     await h.f.pay(pr);
-    const res = await request(h.f.app).post(`/payments/${pr.requestId}/complete`).send({});
+    const res = await request(h.f.app).post(`/payments/${pr.requestId}/complete`).send(pr);
     return { code: `HTTP_${res.status}`, authorized: h.totalAuthorizations() > 0 };
   },
 });

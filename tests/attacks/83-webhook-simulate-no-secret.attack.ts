@@ -2,7 +2,7 @@ import request from "supertest";
 import { defineAttack } from "./harness.js";
 
 export default defineAttack({
-  id: "A79",
+  id: "A83",
   title: "Simulated webhook without the demo secret",
   category: "webhook",
   spec: "Forged webhook",

@@ -1,7 +1,14 @@
 // Settlement (SPEC §6 step 9, §7.1): PayPal after commit, never inside a transaction (D17).
 // Every PayPal POST uses a request id fixed per order and operation, so a retry or a concurrent
 // caller gets PayPal's original result. Order status moves only via `transition` + compare-and-set.
-import { CLOCK_SKEW_S, isHandshakeError, type Decision, type OrderStatus, type Receipt } from "@handshake/core";
+import {
+  CLOCK_SKEW_S,
+  PaymentRequest,
+  isHandshakeError,
+  type Decision,
+  type OrderStatus,
+  type Receipt,
+} from "@handshake/core";
 import { transition } from "../orders/state.js";
 import {
   PayPalApiError,
@@ -12,7 +19,7 @@ import {
   type PayPalAuthorization,
   type PayPalOrder,
 } from "../paypal/client.js";
-import { GateFailure, verifyPaymentRequest, type GateContext } from "./verify.js";
+import { GateFailure, verifyConsumerAgent, verifyPaymentRequest, type GateContext } from "./verify.js";
 import type { OrderRow } from "./store.js";
 
 /** A buyer who hasn't approved a first PayPal order within this long gets the order failed. */
@@ -199,7 +206,10 @@ export async function handlePayment(ctx: GateContext, body: unknown): Promise<Pa
     v = await verifyPaymentRequest(body, ctx);
   } catch (e) {
     if (e instanceof GateFailure) {
-      if (e.requestId) await ctx.store.addDecisions(e.requestId, e.decisions).catch(() => {});
+      // A refused duplicate (step 2) names someone else's request id: log it, but keep it out of that
+      // request's decisions, which only its own agent writes (D25).
+      const refusedDuplicate = e.decisions.at(-1)?.step === "2";
+      if (e.requestId && !refusedDuplicate) await ctx.store.addDecisions(e.requestId, e.decisions).catch(() => {});
       log(ctx, "payment rejected", { requestId: e.requestId, code: e.code, step: e.decisions.at(-1)?.step });
       return { httpStatus: e.status, body: { error: e.code } };
     }
@@ -223,12 +233,19 @@ export async function handlePayment(ctx: GateContext, body: unknown): Promise<Pa
         MANDATE_LIMIT: "6b",
         MANDATE_INVALID: "6b",
       }[e.code as string] ?? "9";
+    if (e.code === "DUPLICATE_REQUEST") {
+      // Lost a race on the request id: the stored outcome, only if this agent sent the original.
+      const seen = await ctx.store.getPaymentRequest(v.commit.requestId);
+      if (seen && seen.agentId !== v.commit.agentId) {
+        log(ctx, "payment rejected", { requestId: v.commit.requestId, code: "AGENT_UNTRUSTED", step: "2" });
+        return { httpStatus: 401, body: { error: "AGENT_UNTRUSTED" } };
+      }
+      await ctx.store.addDecisions(v.commit.requestId, [...v.decisions, { step, result: "fail", reason: `${e.code}: ${e.message}` }]).catch(() => {});
+      if (seen?.order) return current(ctx, seen.order);
+      return { httpStatus: e.status, body: { error: e.code } };
+    }
     const decisions = [...v.decisions, { step, result: "fail" as const, reason: `${e.code}: ${e.message}` }];
     await ctx.store.addDecisions(v.commit.requestId, decisions).catch(() => {});
-    if (e.code === "DUPLICATE_REQUEST") {
-      const seen = await ctx.store.getPaymentRequest(v.commit.requestId);
-      if (seen?.order) return current(ctx, seen.order);
-    }
     return { httpStatus: e.status, body: { error: e.code } };
   }
   await ctx.store.addDecisions(v.commit.requestId, [
@@ -240,8 +257,27 @@ export async function handlePayment(ctx: GateContext, body: unknown): Promise<Pa
   return pay(ctx, order);
 }
 
-/** POST /payments/:requestId/complete — after the buyer approved on PayPal (or to retry step 9). */
-export async function completePayment(ctx: GateContext, requestId: string): Promise<PaymentResponse> {
+/**
+ * POST /payments/:requestId/complete — after the buyer approved on PayPal (or to retry step 9). The
+ * body is the original signed request: only the agent that sent it gets the outcome (D25).
+ */
+export async function completePayment(ctx: GateContext, requestId: string, body: unknown): Promise<PaymentResponse> {
+  const req = PaymentRequest.safeParse(body);
+  if (!req.success || req.data.requestId !== requestId) return { httpStatus: 400, body: { error: "SCHEMA_INVALID" } };
+  try {
+    await verifyConsumerAgent(ctx, req.data);
+  } catch (e) {
+    if (isHandshakeError(e)) return { httpStatus: e.status, body: { error: e.code } };
+    throw e;
+  }
+  const seen = await ctx.store.getPaymentRequest(requestId);
+  // Unknown and someone else's look the same: nothing about the request leaks.
+  if (!seen || seen.agentId !== req.data.kid) return { httpStatus: 404, body: { error: "UNKNOWN_REQUEST" } };
+  return settleRequest(ctx, requestId);
+}
+
+/** Finishes step 9 for a stored request (trusted callers: /complete after its check, PayPal return, expiry). */
+async function settleRequest(ctx: GateContext, requestId: string): Promise<PaymentResponse> {
   const o = (await ctx.store.getPaymentRequest(requestId))?.order;
   if (!o) return { httpStatus: 404, body: { error: "UNKNOWN_REQUEST" } };
   if (o.status !== "offered") return current(ctx, o);
@@ -274,7 +310,7 @@ export async function completeByPayPalOrder(
 ): Promise<{ status: string }> {
   const o = await ctx.store.findOrder({ paypalOrderId });
   if (!o) return { status: "unknown" };
-  const r = await completePayment(ctx, o.requestId);
+  const r = await settleRequest(ctx, o.requestId);
   // The order's owner approved on PayPal in their own session: the saved wallet becomes confirmable.
   if (walletUserId && walletUserId === o.userId) await ctx.store.bindVault(o.userId, undefined);
   if (r.httpStatus === 200) return { status: (r.body as Receipt).status };
@@ -384,7 +420,7 @@ export async function expireOrders(ctx: GateContext): Promise<number> {
       else {
         // A create that timed out may have authorized (vault path), or the buyer approved late:
         // settle that first with the same request ids, then fail only what is still pending.
-        await completePayment(ctx, o.requestId).catch(() => undefined);
+        await settleRequest(ctx, o.requestId).catch(() => undefined);
         const now2 = await ctx.store.getOrder(o.id);
         if (now2?.status === "offered") await failBeforeMoney(ctx, now2, "buyer did not approve on PayPal in time");
       }

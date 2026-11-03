@@ -80,19 +80,20 @@ Accept: full demo runs from the UI on laptop + phone.
 Accept: 0 unauthorized authorizations, 0 duplicate charges.
 
 ## M10 Polish — Sun 8 Nov
-- [ ] demo seed script, reset button, simulate-webhook button
-- [ ] error messages human-readable on dashboard
-- [ ] Low findings: `signEnvelope` runtime type check, bound `holdUntil` (≤ 15 min from `iat`), generic error messages in HTTP responses (detail only in decisions log)
-- [ ] M6 low findings: `/passkeys/login/options` rate-limited per IP and user, pending challenges capped and expired rows swept, same response for unknown users; step-up requires an explicit `shipTo`
-- [ ] M9 low finding: `GET`/`POST /payments` step 2 returns a stored receipt for a known `requestId` before any signature check; require the agent signature (or return status only) so a leaked request id can't read the receipt
-- [ ] M3 low findings: rate-limit `/passkeys/register/options` (each call inserts a user row) or create the user only on verify; map an approval that expires mid-verify to `APPROVAL_EXPIRED` instead of `APPROVAL_REPLAY`
-- [ ] wallet (passkey setup, mandates, activity), phone approval page showing exact cart (built in apps/web, API-tested and `next build` clean; tick after a browser + phone run on Render) (moved from M8)
 - [ ] Render web service named `handshake-web` in render.yaml (serves apps/web at https://handshake-web.onrender.com); the merchant's `WEB_URL`/`WEBAUTHN_ORIGIN`/`WEBAUTHN_RP_ID` on Render already point there, so the name must not change (moved from M8)
+- [ ] Render: all three services (`handshake-merchant`, `handshake-consumer`, `handshake-web`) deployed from render.yaml against Neon `dev`, health checks green, env set per the dashboard checklist (M11 switches them to `main`)
 - [ ] register/authenticate endpoints; challenge = `hash(payload)` (moved from M3) (moved from M8)
+- [ ] wallet (passkey setup, mandates, activity), phone approval page showing exact cart (built in apps/web, API-tested and `next build` clean; tick after a browser + phone run on Render) (moved from M8)
 - [ ] merchant dashboard: live SSE feed of agents, decisions, PayPal states (built + API-tested; tick after a browser run) (moved from M8)
 - [ ] shopkeeper assistant panel via `@paypal/agent-toolkit` (confirm before acting) (built: read-only toolkit, refund proposals + confirm card, tested with a scripted model; tick after a live LLM run) (moved from M8)
+- [ ] error messages human-readable on dashboard
+- [ ] demo seed script, reset button, simulate-webhook button
 - [ ] M6 follow-ups: `deleteSession` (logout) and session revocation; mark a pending approval cancelled when its chat closes; pin each `MERCHANT_URL` to its `merchantId` and refuse duplicates (done in M8: logout, cancel on chat close; left: URL→merchantId pin) (moved from M8)
 - [ ] M7 follow-ups (D22): opaque per-order token in PayPal return URLs instead of the request id, and rate-limit `/payments/:id/complete`; tracking-only retry for a captured order whose tracking call failed; void the authorization when a webhook reports a declined capture; `pnpm paypal:webhook` can't add `PAYMENT.CAPTURE.REVERSED` to the existing webhook (PATCH it, or re-create); confirm the REVERSED resource shape in `docs/PAYPAL.md` (done in M8: no request id in return URLs, `/complete` rate limit, tracking-only retry, webhook PATCH in `pnpm paypal:webhook` (run 4 Nov: all 8 event types subscribed), PAYPAL.md notes; left: void on webhook-declined capture, confirm REVERSED/REFUNDED and authorize-payer shapes in sandbox) (moved from M8)
+- [ ] M9 low finding (POST duplicate fixed in fix(m9), D25): `GET /payments/:requestId` still returns the receipt to anyone holding the request id; nothing calls it, so return status only or remove it
+- [ ] Low findings: `signEnvelope` runtime type check, bound `holdUntil` (≤ 15 min from `iat`), generic error messages in HTTP responses (detail only in decisions log)
+- [ ] M6 low findings: `/passkeys/login/options` rate-limited per IP and user, pending challenges capped and expired rows swept, same response for unknown users; step-up requires an explicit `shipTo`
+- [ ] M3 low findings: rate-limit `/passkeys/register/options` (each call inserts a user row) or create the user only on verify; map an approval that expires mid-verify to `APPROVAL_EXPIRED` instead of `APPROVAL_REPLAY`
 - [ ] M8 low findings: throttle `GET /wallet/paypal` challenge rows (reuse a live one); consumer is publicly reachable on Render, so keep every route self-authenticating (moved from M8)
 
 ## M11 Ship — Mon 9 Nov

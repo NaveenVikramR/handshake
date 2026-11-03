@@ -2,7 +2,7 @@ import { hash } from "../../packages/core/src/index.js";
 import { defineAttack } from "./harness.js";
 
 export default defineAttack({
-  id: "A88",
+  id: "A92",
   title: "Assertion over a different payload's hash",
   category: "webauthn",
   spec: "Wrong origin/rpId",

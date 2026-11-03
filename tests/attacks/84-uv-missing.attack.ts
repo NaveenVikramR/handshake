@@ -1,13 +1,13 @@
 import { defineAttack } from "./harness.js";
 
 export default defineAttack({
-  id: "A81",
-  title: "Assertion without user presence",
+  id: "A84",
+  title: "Assertion without user verification",
   category: "webauthn",
   spec: "UV flag missing",
-  expect: "APPROVAL_INVALID",
+  expect: "APPROVAL_UV_MISSING",
   async run(h) {
     const offer = await h.f.offer();
-    return h.submit(h.f.passkeyRequest(offer, {}, { up: false }));
+    return h.submit(h.f.passkeyRequest(offer, {}, { uv: false }));
   },
 });

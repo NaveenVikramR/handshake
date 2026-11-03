@@ -8,6 +8,7 @@ import {
   randomNonce,
   signEnvelope,
   type OfferRequest,
+  type PaymentRequest,
   type Receipt,
   type ShipTo,
   type SignedOffer,
@@ -34,7 +35,7 @@ export const STATUS_MEANING: Record<Receipt["status"], string> = {
 /** Polls the gate after PayPal's approve link until a receipt, an error, the hold's end or a cancel. */
 async function awaitPayPal(
   client: MerchantClient,
-  requestId: string,
+  request: PaymentRequest,
   deadlineMs: number,
   now: () => number,
   opts: { pollMs: number; signal?: AbortSignal },
@@ -43,7 +44,7 @@ async function awaitPayPal(
     if (opts.signal?.aborted) throw new HandshakeError("APPROVAL_EXPIRED", "chat closed before PayPal approval");
     if (now() > deadlineMs) throw new HandshakeError("APPROVAL_EXPIRED", "PayPal approval not given in time");
     await new Promise((r) => setTimeout(r, opts.pollMs));
-    const o = await client.complete(requestId);
+    const o = await client.complete(request);
     if (o.kind === "receipt") return o;
   }
 }
@@ -274,7 +275,7 @@ async function run(ctx: AppContext, agent: AgentConfig, s: ChatSession, name: To
       if (decision.path === "mandate") s.mandateCheckouts++;
       if (outcome.kind === "payer_action") {
         s.emit({ type: "paypal_approval_required", url: outcome.approveUrl, requestId: request.requestId });
-        outcome = await awaitPayPal(m.client, request.requestId, offer.payload.holdUntil * 1000, ctx.now, {
+        outcome = await awaitPayPal(m.client, request, offer.payload.holdUntil * 1000, ctx.now, {
           pollMs: agent.paypalPollMs ?? 3000,
           ...(s.signal ? { signal: s.signal } : {}),
         });

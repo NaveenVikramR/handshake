@@ -1,7 +1,7 @@
 import { defineAttack } from "./harness.js";
 
 export default defineAttack({
-  id: "A82",
+  id: "A86",
   title: "Sign count rolled back to 0 after use",
   category: "webauthn",
   spec: "signCount rollback",

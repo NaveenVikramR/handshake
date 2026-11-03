@@ -129,7 +129,10 @@ export interface GateStore<Tx = unknown> {
   getOffer(id: string): Promise<OfferRow | undefined>;
   categories(skus: string[]): Promise<Map<string, string>>;
   nonceSeen(kid: string, type: string, nonce: string): Promise<boolean>;
-  getPaymentRequest(requestId: string): Promise<{ receipt: Receipt | null; order: OrderRow | null } | undefined>;
+  /** The stored request: who sent it (`agentId`, the signing consumer agent), its receipt and order. */
+  getPaymentRequest(
+    requestId: string,
+  ): Promise<{ agentId: string; receipt: Receipt | null; order: OrderRow | null } | undefined>;
   ordersSince(userId: string, sinceMs: number): Promise<number>;
   /**
    * Steps 2/4/6/7 authoritative, in one transaction (D17): the request row (DUPLICATE_REQUEST),
@@ -266,7 +269,11 @@ export function prismaGateStore(db: PrismaClient): GateStore<Prisma.TransactionC
     async getPaymentRequest(requestId) {
       const r = await db.paymentRequestRow.findUnique({ where: { requestId }, include: { order: true } });
       if (!r) return undefined;
-      return { receipt: (r.receiptJson as Receipt | null) ?? null, order: r.order ? toOrder(r.order) : null };
+      return {
+        agentId: r.agentId,
+        receipt: (r.receiptJson as Receipt | null) ?? null,
+        order: r.order ? toOrder(r.order) : null,
+      };
     },
     async ordersSince(userId, sinceMs) {
       return db.order.count({ where: { userId, createdAt: { gte: new Date(sinceMs) } } });
@@ -503,7 +510,7 @@ export function memoryGateStore(seed: {
   const offers = new Map((seed.offers ?? []).map((o) => [o.id, { ...o }]));
   const cats = new Map(Object.entries(seed.categories ?? {}));
   const nonces = new Set<string>();
-  const requests = new Map<string, { offerId: string; receipt: Receipt | null }>();
+  const requests = new Map<string, { agentId: string; offerId: string; receipt: Receipt | null }>();
   const orders = new Map<string, OrderRow>();
   const vaults =
     seed.vaults ??
@@ -562,7 +569,7 @@ export function memoryGateStore(seed: {
       const r = requests.get(requestId);
       if (!r) return undefined;
       const order = [...orders.values()].find((o) => o.requestId === requestId) ?? null;
-      return { receipt: r.receipt, order: order && { ...order } };
+      return { agentId: r.agentId, receipt: r.receipt, order: order && { ...order } };
     },
     async ordersSince(userId, since) {
       return [...orders.values()].filter((o) => o.userId === userId && o.createdAt >= since).length;
@@ -601,7 +608,7 @@ export function memoryGateStore(seed: {
         throw late;
       }
       const pk = input.passkey && passkeys.get(input.passkey.credentialId);
-      requests.set(input.requestId, { offerId: input.offerId, receipt: null });
+      requests.set(input.requestId, { agentId: input.agentId, offerId: input.offerId, receipt: null });
       setOfferStatus(input.offerId, "used");
       nonces.add(nk);
       if (pk && input.passkey) pk.signCount = input.passkey.next;

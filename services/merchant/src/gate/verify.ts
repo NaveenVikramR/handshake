@@ -72,9 +72,18 @@ export type Verified =
 
 const sameItems = (a: CartApproval["items"], b: CartApproval["items"]) => hash(a) === hash(b);
 
+/** Step 3 (and step 2 for a duplicate, and /complete): a registered, active consumer agent signed this request. */
+export async function verifyConsumerAgent(ctx: GateContext, req: PaymentRequest): Promise<void> {
+  const agent = await ctx.registry.getAgent(req.kid);
+  if (!agent || agent.role !== "consumer" || agent.status !== "active") {
+    throw new HandshakeError("AGENT_UNTRUSTED", "consumer agent not active in the registry");
+  }
+  verifyPaymentRequestSig(req, { id: agent.id, publicKey: agent.publicKey });
+}
+
 /**
  * SPEC §6 steps 1–8. Route handlers call only this (then commit and pay). Throws GateFailure.
- * Step 2 returns the stored outcome for a request id already seen.
+ * Step 2 returns the stored outcome for a request id already seen, only to the agent that sent it (D25).
  */
 export async function verifyPaymentRequest(body: unknown, ctx: GateContext): Promise<Verified> {
   const decisions: Decision[] = [];
@@ -103,22 +112,23 @@ export async function verifyPaymentRequest(body: unknown, ctx: GateContext): Pro
   });
   seenId.requestId = req.requestId;
 
-  // 2. Seen before → the stored outcome (the commit re-checks this atomically).
+  // 2. Seen before → the stored outcome (the commit re-checks this atomically), but only to the agent
+  // that sent the original, proven by a valid agentSig: a leaked request id reveals no receipt.
   const seen = await ctx.store.getPaymentRequest(req.requestId);
-  if (seen) return { kind: "duplicate", requestId: req.requestId, ...seen };
+  if (seen) {
+    await step("2", "duplicate from the original agent", async () => {
+      await verifyConsumerAgent(ctx, req);
+      if (seen.agentId !== req.kid) throw new HandshakeError("AGENT_UNTRUSTED", "request id belongs to another agent");
+    });
+    return { kind: "duplicate", requestId: req.requestId, receipt: seen.receipt, order: seen.order };
+  }
   decisions.push({ step: "2", result: "pass", reason: "request id unseen" });
 
   const a = req.authorization;
   const cart = a.kind === "passkey" ? a.cartApproval : a.cart;
 
   // 3. Consumer agent: registered, active, signed the request, and is the agent the approval names.
-  await step("3", "consumer agent verified", async () => {
-    const agent = await ctx.registry.getAgent(req.kid);
-    if (!agent || agent.role !== "consumer" || agent.status !== "active") {
-      throw new HandshakeError("AGENT_UNTRUSTED", "consumer agent not active in the registry");
-    }
-    verifyPaymentRequestSig(req, { id: agent.id, publicKey: agent.publicKey });
-  });
+  await step("3", "consumer agent verified", () => verifyConsumerAgent(ctx, req));
 
   // 4. The offer is ours (payee binding), live, unused, and the one we stored for this agent.
   const offerRow = await step("4", "offer is ours and open", async () => {

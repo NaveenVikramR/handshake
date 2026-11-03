@@ -47,11 +47,11 @@ export function gateRouter(ctx: GateContext, opts: { adminToken: string }): Rout
     res.status(r.httpStatus).json(r.body);
   });
 
-  router.post("/payments/:requestId/complete", async (req, res) => {
+  router.post("/payments/:requestId/complete", express.json({ limit: "64kb" }), async (req, res) => {
     if (!completes(req.ip ?? "unknown")) return void res.status(429).json({ error: "RATE_LIMITED" });
     const id = RequestId.safeParse(req.params.requestId);
     if (!id.success) return void res.status(400).json({ error: "SCHEMA_INVALID" });
-    const r = await completePayment(ctx, id.data);
+    const r = await completePayment(ctx, id.data, req.body);
     res.status(r.httpStatus).json(r.body);
   });
 

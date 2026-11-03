@@ -13,7 +13,7 @@ async function payFirstTime(f: GateFixture, body: object) {
   expect(res.status).toBe(202);
   const ppId = new URL(res.body.approveUrl).searchParams.get("token")!;
   f.paypal.approve(ppId);
-  const done = await request(f.app).post(`/payments/${res.body.requestId}/complete`).send({});
+  const done = await request(f.app).post(`/payments/${res.body.requestId}/complete`).send(body);
   expect(done.status).toBe(200);
   // The wallet user confirms the saved PayPal account with a passkey (M8); until then it never pays.
   const v = f.gate.vaults.get("usr_alice");
@@ -32,10 +32,10 @@ describe("gate: passkey path, first-time payer then saved wallet", () => {
     expect(res.body).toMatchObject({ requestId: body.requestId, status: "payer_action_required" });
     expect(res.body.approveUrl).toMatch(/^https:\/\/www\.sandbox\.paypal\.com\//);
     // Before the buyer approves, /complete keeps waiting.
-    expect((await request(f.app).post(`/payments/${body.requestId}/complete`).send({})).status).toBe(202);
+    expect((await request(f.app).post(`/payments/${body.requestId}/complete`).send(body)).status).toBe(202);
 
     f.paypal.approve(new URL(res.body.approveUrl).searchParams.get("token")!);
-    const done = await request(f.app).post(`/payments/${body.requestId}/complete`).send({});
+    const done = await request(f.app).post(`/payments/${body.requestId}/complete`).send(body);
     expect(done.status).toBe(200);
     expect(done.body).toMatchObject({
       requestId: body.requestId,
@@ -391,7 +391,7 @@ describe("step 9 failures", () => {
     f.paypal.fail.create = new PayPalApiError(0, "TIMEOUT", undefined, true);
     expect((await f.pay(body)).body).toEqual({ error: "PAYPAL_ERROR" });
     f.paypal.fail.create = undefined;
-    const done = await request(f.app).post(`/payments/${body.requestId}/complete`).send({});
+    const done = await request(f.app).post(`/payments/${body.requestId}/complete`).send(body);
     expect(done.body.status).toBe("authorized");
     expect(f.paypal.calls.filter((c) => c.op === "create" && c.requestId === body.requestId)).toHaveLength(2);
   });
@@ -591,7 +591,7 @@ describe("review fixes: no authorization is left held without a live order", () 
     expect(order.status).toBe("failed");
     // Then they approve, and something calls /complete.
     f.paypal.approve(new URL(res.body.approveUrl).searchParams.get("token")!);
-    const late = await request(f.app).post(`/payments/${body.requestId}/complete`).send({});
+    const late = await request(f.app).post(`/payments/${body.requestId}/complete`).send(body);
     expect(late.status).toBe(502);
     expect(f.paypal.calls.filter((c) => c.op === "authorize")).toHaveLength(0); // failed orders aren't re-authorized
   });
@@ -609,7 +609,7 @@ describe("review fixes: no authorization is left held without a live order", () 
       await f.gate.store.updateOrder({ orderId: o.id, from: "offered", to: "failed", release: true });
       return out;
     };
-    await request(f.app).post(`/payments/${body.requestId}/complete`).send({});
+    await request(f.app).post(`/payments/${body.requestId}/complete`).send(body);
     expect(f.paypal.calls.filter((c) => c.op === "void")).toHaveLength(1);
     expect(f.gate.reconciliations.at(-1)?.note).toMatch(/voided/);
     expect(f.gate.vaults.size).toBe(0);
@@ -649,7 +649,7 @@ describe("saved-wallet payer check (M8)", () => {
     const body = f.passkeyRequest(await f.offer());
     const res = await f.pay(body);
     f.paypal.approve(new URL(res.body.approveUrl).searchParams.get("token")!);
-    await request(f.app).post(`/payments/${body.requestId}/complete`).send({});
+    await request(f.app).post(`/payments/${body.requestId}/complete`).send(body);
     expect(f.gate.vaults.get("usr_alice")?.status).toBe("unbound");
     expect((await f.pay(f.passkeyRequest(await f.offer()))).status).toBe(202);
   });

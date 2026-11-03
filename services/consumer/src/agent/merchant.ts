@@ -66,7 +66,8 @@ export interface MerchantClient {
   requestOffer(req: SignedOfferRequest): Promise<SignedOffer>;
   pay(req: PaymentRequest): Promise<PaymentOutcome>;
   /** Asks the gate to finish a payment the buyer approved on PayPal; same outcome shape. */
-  complete(requestId: string): Promise<PaymentOutcome>;
+  /** Re-sends the original signed request: the merchant answers only the agent that sent it (D25). */
+  complete(request: PaymentRequest): Promise<PaymentOutcome>;
 }
 
 /** A merchant error code we pass on (e.g. OUT_OF_STOCK); anything unknown becomes MERCHANT_UNTRUSTED. */
@@ -110,6 +111,6 @@ export function merchantClient(baseUrl: string, doFetch: typeof fetch = fetch): 
     catalog: () => call(Catalog, "/catalog"),
     requestOffer: async (req) => (await call(OfferResponse, "/offers", req)).offer,
     pay: (req) => call(Outcome, "/payments", req),
-    complete: (requestId) => call(Outcome, `/payments/${encodeURIComponent(requestId)}/complete`, {}),
+    complete: (req) => call(Outcome, `/payments/${encodeURIComponent(req.requestId)}/complete`, req),
   };
 }

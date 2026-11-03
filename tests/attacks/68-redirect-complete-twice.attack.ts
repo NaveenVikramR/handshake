@@ -14,7 +14,7 @@ export default defineAttack({
     const res = await h.f.pay(pr);
     const token = new URL((res.body as { approveUrl: string }).approveUrl).searchParams.get("token")!;
     h.f.paypal.approve(token);
-    const complete = () => request(h.f.app).post(`/payments/${pr.requestId}/complete`).send({});
+    const complete = () => request(h.f.app).post(`/payments/${pr.requestId}/complete`).send(pr);
     const first = await complete();
     const again = await complete();
     const same = JSON.stringify(first.body) === JSON.stringify(again.body);

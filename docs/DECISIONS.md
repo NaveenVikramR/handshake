@@ -85,3 +85,20 @@ Decision: (1) `apps/web` (Next.js 16) is the only origin a browser talks to, and
   - A replay with a counting passkey stops at the sign count (6a APPROVAL_INVALID) before the nonce check.
   - A voided order's offer is released (OFFER_EXPIRED).
   - Over-long approvals and a merchant id in the consumer `kid` fail the schema.
+
+## D25 — A duplicate requestId gets its receipt only from the agent that sent it (2026-11-04)
+Gate step 2 used to answer any seen `requestId` with the stored receipt before checking anything, so anyone holding a leaked request id could read the receipt: its order, PayPal ids and status. Now a duplicate gets the receipt only when two things hold. First, the request's `agentSig` verifies for an active, registered consumer agent (the step-3 check). Second, that `kid` is the agent recorded on the stored request (`payment_requests.agent_id`). Otherwise it gets the normal gate error and nothing else:
+- `AGENT_SIG_INVALID` for a bad signature;
+- `AGENT_UNTRUSTED` for an unknown, inactive or different agent.
+
+The commit-race path, which loses the unique insert on `requestId`, applies the same agent match.
+
+Security review follow-ups:
+- `POST /payments/:requestId/complete`, which the consumer polls after PayPal's redirect, now takes the original signed request as its body, with the same proof. Unknown and someone else's requests both answer `UNKNOWN_REQUEST`. The PayPal-return route and the expiry job are trusted, so they call the internal `settleRequest` directly.
+- A refused duplicate is logged but not written into the original request's decisions, so nobody holding only the id can add rows to a paid order's log.
+
+Attack cases `dup-request-other-agent`, `dup-request-forged-sig`, `complete-leaked-id-unsigned` and `complete-other-agent` cover this; all four leaked the receipt before the fix.
+
+Known remaining issues:
+- Request ids are a client-chosen `req_…` of 1–64 characters, so a seen id is distinguishable from an unseen one (`AGENT_UNTRUSTED` vs. later steps). That reveals that a payment exists, not its receipt. Our consumer agent uses random 128-bit ids.
+- `GET /payments/:requestId` still answers by id alone. Nothing calls it, so M10 either makes it status-only or removes it.

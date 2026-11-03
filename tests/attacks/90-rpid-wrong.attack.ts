@@ -1,7 +1,7 @@
 import { defineAttack } from "./harness.js";
 
 export default defineAttack({
-  id: "A86",
+  id: "A90",
   title: "Assertion scoped to another RP id",
   category: "webauthn",
   spec: "Wrong origin/rpId",

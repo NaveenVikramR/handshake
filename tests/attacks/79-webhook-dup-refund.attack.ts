@@ -1,7 +1,7 @@
 import { defineAttack } from "./harness.js";
 
 export default defineAttack({
-  id: "A75",
+  id: "A79",
   title: "Partial-refund webhook delivered twice",
   category: "webhook",
   spec: "Duplicate webhook",
