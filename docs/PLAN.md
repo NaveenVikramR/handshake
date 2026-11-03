@@ -66,7 +66,7 @@ Accept: chat request ends in a receipt; LLM cannot change amounts (test).
 - [x] Agent final message reflects the real order state (authorized = 'payment approved, held until delivery'; captured = 'paid'); never say 'complete' before capture.
 - [x] M6 follow-ups (D21): `POST /payments` accepts the M6 payment request, and a real chat ends in a gate-issued receipt (M6 proved it against a stub); categories for 6b from `products`, never the request; spend reserved atomically in the tx that marks the offer used; attack test: parallel chats splitting an order across the period limit
 - [x] M4 follow-ups (D17): ledger flow `checkMandateScope` → `reserve` → nonce → order `pending_authorization` with its `periodStart` → commit → PayPal outside the tx → on failure void + `release` in the order-state CAS tx (once per order); `periodStart` from the gate clock, never `cart.iat`; mandate proof re-checked with `verifyMandateApproval(…, { fresh: false })`; map unknown-mandate FK errors to `MANDATE_INVALID`
-- [ ] Live sandbox end-to-end: chat → gate → PayPal approve (first time) → vault → fulfil → capture → tracking, with a real buyer approval
+- [x] Live sandbox end-to-end: chat → gate → PayPal approve (first time) → vault → fulfil → capture → tracking, with a real buyer approval (`pnpm sandbox:e2e`; order 0N199875LW8772338, capture 89U51688LY8647725 COMPLETED, 2026-11-03)
 Accept: happy path end-to-end in sandbox.
 
 ## M8 Web UI — Fri 6 Nov

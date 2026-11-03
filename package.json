@@ -19,7 +19,8 @@
     "db:seed": "pnpm --filter @handshake/db seed",
     "keys:gen": "tsx scripts/keys-gen.ts",
     "paypal:smoke": "pnpm --filter @handshake/merchant paypal:smoke",
-    "paypal:webhook": "pnpm --filter @handshake/merchant paypal:webhook"
+    "paypal:webhook": "pnpm --filter @handshake/merchant paypal:webhook",
+    "sandbox:e2e": "pnpm --filter @handshake/consumer sandbox:e2e"
   },
   "devDependencies": {
     "@eslint/js": "10.0.1",

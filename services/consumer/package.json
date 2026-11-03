@@ -5,7 +5,8 @@
   "type": "module",
   "scripts": {
     "dev": "tsx watch src/server.ts",
-    "typecheck": "tsc -p tsconfig.json"
+    "typecheck": "tsc -p tsconfig.json",
+    "sandbox:e2e": "tsx scripts/sandbox-e2e.ts"
   },
   "dependencies": {
     "@handshake/core": "workspace:*",
