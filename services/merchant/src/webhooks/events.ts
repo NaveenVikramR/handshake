@@ -21,8 +21,8 @@ export interface MappedOrderEvent {
 }
 
 // Payments v2 sends PAYMENT.CAPTURE.DECLINED; v1/marketplaces docs list DENIED. Accept both.
-// There is no authorization denied/expired event. CHECKOUT.ORDER.APPROVED, CAPTURE.PENDING and
-// CAPTURE.REVERSED don't move our state machine; they are recorded and ignored.
+// There is no authorization denied/expired event. CHECKOUT.ORDER.APPROVED and CAPTURE.PENDING
+// don't move our state machine; they are recorded and ignored.
 const MAP: Record<string, { kind: PayPalRef["kind"]; to: OrderStatus }> = {
   "PAYMENT.AUTHORIZATION.CREATED": { kind: "authorization", to: "authorized" },
   "PAYMENT.AUTHORIZATION.VOIDED": { kind: "authorization", to: "voided" },
@@ -30,6 +30,9 @@ const MAP: Record<string, { kind: PayPalRef["kind"]; to: OrderStatus }> = {
   "PAYMENT.CAPTURE.DECLINED": { kind: "capture", to: "failed" },
   "PAYMENT.CAPTURE.DENIED": { kind: "capture", to: "failed" },
   "PAYMENT.CAPTURE.REFUNDED": { kind: "refund", to: "refunded" },
+  // A reversal (dispute/chargeback) takes the money back: as a refund, plus a reconciliation note.
+  // The resource may be a refund-type object linked "up" to the capture; resolved like a refund.
+  "PAYMENT.CAPTURE.REVERSED": { kind: "refund", to: "refunded" },
 };
 
 export function orderEventFor(event: WebhookEvent): MappedOrderEvent | undefined {

@@ -20,6 +20,33 @@ import { trustedMerchant, verifyOfferWithRegistry } from "./trust.js";
 
 const OFFER_REQUEST_TTL_S = 60;
 
+/** What each order status means for the person: the agent's final message must agree. */
+export const STATUS_MEANING: Record<Receipt["status"], string> = {
+  offered: "waiting for payment approval",
+  authorized: "payment approved, held until delivery",
+  captured: "paid",
+  refunded: "refunded",
+  voided: "cancelled, nothing charged",
+  failed: "payment failed, nothing charged",
+};
+
+/** Polls the gate after PayPal's approve link until a receipt, an error, the hold's end or a cancel. */
+async function awaitPayPal(
+  client: MerchantClient,
+  requestId: string,
+  deadlineMs: number,
+  now: () => number,
+  opts: { pollMs: number; signal?: AbortSignal },
+): Promise<{ kind: "receipt"; receipt: Receipt }> {
+  for (;;) {
+    if (opts.signal?.aborted) throw new HandshakeError("APPROVAL_EXPIRED", "chat closed before PayPal approval");
+    if (now() > deadlineMs) throw new HandshakeError("APPROVAL_EXPIRED", "PayPal approval not given in time");
+    await new Promise((r) => setTimeout(r, opts.pollMs));
+    const o = await client.complete(requestId);
+    if (o.kind === "receipt") return o;
+  }
+}
+
 /** Merchant-supplied text as delimited data the model must not obey. Delimiters inside are removed. */
 export const untrusted = (s: string) =>
   `<untrusted>${s.replace(/<\/?untrusted>/gi, "").replace(/[<>]/g, "")}</untrusted>`;
@@ -29,6 +56,7 @@ export type AgentEvent =
   | { type: "tool"; name: string; ids: Record<string, string> }
   | { type: "tool_result"; name: string; ok: boolean; error?: string }
   | { type: "receipt"; receipt: Receipt; offerId: string; totalMinor: number; currency: string }
+  | { type: "paypal_approval_required"; url: string; requestId: string }
   | { type: "message"; text: string }
   | { type: "error"; error: string };
 
@@ -40,6 +68,8 @@ export interface ChatSession {
   paid: Set<string>;
   /** Mandate-path checkouts so far; after one, further checkouts in this chat need the phone. */
   mandateCheckouts: number;
+  /** The latest receipt's status, so the final message can't overstate it. */
+  lastStatus?: Receipt["status"];
   emit: (e: AgentEvent) => void;
   signal?: AbortSignal;
 }
@@ -215,21 +245,42 @@ async function run(ctx: AppContext, agent: AgentConfig, s: ChatSession, name: To
       const catalog = await m.client.catalog();
       const category = new Map(catalog.products.map((p) => [p.sku, p.category]));
       s.paid.add(offerId);
-      const { request, decision } = await authorize(ctx, agent, {
-        userId: s.userId,
-        offer,
-        categories: offer.payload.items.map((i) => category.get(i.sku) ?? ""),
-        shipToHash: s.shipToHash,
-        // One unattended purchase per chat: a looping model or an injection can't repeat orders silently.
-        forceStepUp: s.mandateCheckouts > 0 ? "one mandate checkout per chat already made" : undefined,
-        emit: s.emit,
-        ...(s.signal ? { signal: s.signal } : {}),
-      });
+      const attempt = (forceStepUp: string | undefined) =>
+        authorize(ctx, agent, {
+          userId: s.userId,
+          offer,
+          categories: offer.payload.items.map((i) => category.get(i.sku) ?? ""),
+          shipToHash: s.shipToHash,
+          forceStepUp,
+          emit: s.emit,
+          ...(s.signal ? { signal: s.signal } : {}),
+        });
+      // One unattended purchase per chat: a looping model or an injection can't repeat orders silently.
+      let { request, decision } = await attempt(
+        s.mandateCheckouts > 0 ? "one mandate checkout per chat already made" : undefined,
+      );
+      let outcome;
+      try {
+        outcome = await m.client.pay(request);
+      } catch (e) {
+        // The gate's risk check asked for the human: ask on the phone once, with a fresh cart.
+        if (!(isHandshakeError(e) && e.code === "STEP_UP_REQUIRED" && decision.path === "mandate")) throw e;
+        ({ request, decision } = await attempt("the merchant's risk check asked for your approval"));
+        outcome = await m.client.pay(request);
+      }
       if (decision.path === "mandate") s.mandateCheckouts++;
-      const receipt = await m.client.pay(request);
+      if (outcome.kind === "payer_action") {
+        s.emit({ type: "paypal_approval_required", url: outcome.approveUrl, requestId: request.requestId });
+        outcome = await awaitPayPal(m.client, request.requestId, offer.payload.holdUntil * 1000, ctx.now, {
+          pollMs: agent.paypalPollMs ?? 3000,
+          ...(s.signal ? { signal: s.signal } : {}),
+        });
+      }
+      const receipt = outcome.receipt;
       if (receipt.requestId !== request.requestId || receipt.offerHash !== hash(offer.payload)) {
         throw new HandshakeError("MERCHANT_UNTRUSTED", "receipt does not match the payment request");
       }
+      s.lastStatus = receipt.status;
       s.emit({
         type: "receipt",
         receipt,
@@ -241,6 +292,8 @@ async function run(ctx: AppContext, agent: AgentConfig, s: ChatSession, name: To
         offerId,
         requestId: receipt.requestId,
         status: receipt.status,
+        // Code says what the status means; the model must not say more.
+        meaning: STATUS_MEANING[receipt.status],
         totalMinor: offer.payload.totalMinor,
         currency: offer.payload.currency,
       };

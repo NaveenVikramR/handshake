@@ -1,4 +1,6 @@
 import express, { type ErrorRequestHandler, type Express } from "express";
+import { gateRouter } from "./gate/routes.js";
+import type { GateContext } from "./gate/verify.js";
 import { offerRouter } from "./offers/routes.js";
 import type { OfferContext } from "./offers/service.js";
 import type { WebhookDeps } from "./webhooks/handler.js";
@@ -8,6 +10,8 @@ export interface AppDeps<Tx> {
   webhooks: WebhookDeps<Tx>;
   /** Agent card, catalog and offers; omitted by webhook-only tests. */
   offers?: OfferContext;
+  /** Payments gate + settlement; omitted by webhook/offer-only tests. */
+  gate?: { ctx: GateContext; adminToken: string };
   demoMode: boolean;
   demoSecret?: string;
 }
@@ -16,6 +20,8 @@ export interface AppDeps<Tx> {
 export function createApp<Tx>(deps: AppDeps<Tx>): Express {
   const app = express();
   app.disable("x-powered-by");
+  // Render puts one proxy in front: req.ip is then the real client, so the webhook rate limit is per caller.
+  app.set("trust proxy", 1);
   app.get("/health", (_req, res) => {
     res.json({ ok: true });
   });
@@ -26,6 +32,7 @@ export function createApp<Tx>(deps: AppDeps<Tx>): Express {
     }),
   );
   if (deps.offers) app.use(offerRouter(deps.offers));
+  if (deps.gate) app.use(gateRouter(deps.gate.ctx, { adminToken: deps.gate.adminToken }));
 
   // Never return stacks: bad JSON is a schema error, anything else a bare 500.
   const onError: ErrorRequestHandler = (err: { type?: string }, _req, res, _next) => {

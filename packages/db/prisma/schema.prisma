@@ -204,11 +204,16 @@ model StockHold {
   @@map("stock_holds")
 }
 
-/// Signed-payload nonces seen by this service (offer requests now, payment payloads in M7).
+/// Signed-payload nonces seen by this service, per signer and payload type (D22), so one agent
+/// can't burn another's nonce. Rows past `exp` can be deleted.
 model UsedNonce {
-  nonce String   @id
+  kid   String
+  type  String
+  nonce String
   exp   DateTime
 
+  @@id([kid, type, nonce])
+  @@index([exp])
   @@map("used_nonces")
 }
 
@@ -237,4 +242,92 @@ model Session {
 
   @@index([userId])
   @@map("sessions")
+}
+
+// ── M7 gate + settlement ────────────────────────────────────────────────────
+
+/// One per payment requestId (SPEC §6 step 2). The receipt is returned again on a duplicate.
+model PaymentRequestRow {
+  requestId   String   @id @map("request_id")
+  agentId     String   @map("agent_id")
+  userId      String   @map("user_id")
+  offerId     String   @unique @map("offer_id")
+  receiptJson Json?    @map("receipt_json")
+  createdAt   DateTime @default(now()) @map("created_at")
+
+  order Order?
+
+  @@map("payment_requests")
+}
+
+/// Orders (SPEC §7.1). Status changes only through the state machine (`transition`).
+model Order {
+  id              String    @id
+  requestId       String    @unique @map("request_id")
+  userId          String    @map("user_id")
+  offerId         String    @unique @map("offer_id")
+  status          String // OrderStatus
+  path            String // passkey | mandate
+  totalMinor      Int       @map("total_minor")
+  currency        String
+  offerHash       String    @map("offer_hash")
+  approvalHash    String    @map("approval_hash")
+  mandateId       String?   @map("mandate_id")
+  /// The ledger bucket reserved at the gate; released on void/failure (D17).
+  periodStart     DateTime? @map("period_start")
+  paypalOrderId   String?   @unique @map("paypal_order_id")
+  authorizationId String?   @unique @map("authorization_id")
+  captureId       String?   @unique @map("capture_id")
+  refundId        String?   @map("refund_id")
+  refundedMinor   Int       @default(0) @map("refunded_minor")
+  /// PayPal approve link while the buyer still has to approve a first (vault-saving) order.
+  payerActionUrl  String?   @map("payer_action_url")
+  trackingNumber  String?   @map("tracking_number")
+  /// Fulfil (capture) or void by this time; the expiry job voids after it.
+  fulfilBy        DateTime  @map("fulfil_by")
+  createdAt       DateTime  @default(now()) @map("created_at")
+  updatedAt       DateTime  @updatedAt @map("updated_at")
+
+  request PaymentRequestRow @relation(fields: [requestId], references: [requestId])
+
+  @@index([status, fulfilBy])
+  @@index([userId, createdAt])
+  @@map("orders")
+}
+
+/// Every gate step's outcome (SPEC §6), streamed to the dashboard in M8.
+model Decision {
+  id        Int      @id @default(autoincrement())
+  requestId String   @map("request_id")
+  step      String
+  result    String // pass | fail | step_up | skip
+  reason    String
+  at        DateTime @default(now())
+
+  @@index([requestId])
+  @@map("decisions")
+}
+
+/// Saved PayPal wallet per wallet user (D7, D22). Server-side only; never logged or returned.
+model PaypalVault {
+  userId     String   @id @map("user_id")
+  vaultId    String   @map("vault_id")
+  customerId String?  @map("customer_id")
+  createdAt  DateTime @default(now()) @map("created_at")
+
+  @@map("paypal_vaults")
+}
+
+/// Webhook events that didn't fit the order state machine (D15), for a human to look at.
+model Reconciliation {
+  id        Int      @id @default(autoincrement())
+  eventId   String   @map("event_id")
+  eventType String   @map("event_type")
+  orderId   String?  @map("order_id")
+  fromState String?  @map("from_state")
+  toState   String?  @map("to_state")
+  note      String
+  at        DateTime @default(now())
+
+  @@map("reconciliations")
 }

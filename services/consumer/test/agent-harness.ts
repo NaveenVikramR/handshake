@@ -1,16 +1,8 @@
-// Test harness for the consumer agent: the real M5 merchant app (memory store) on an ephemeral
-// port, plus a stub POST /payments that checks the payment request with core and returns a
-// Receipt (the real gate is M7). The registry rows are shared by both sides.
+// Test harness for the consumer agent: the real merchant app (offers + M7 gate, memory stores) on
+// an ephemeral port with a fake PayPal. The registry, passkey and mandate rows are shared by both
+// sides, as they are in Postgres.
 import type { AddressInfo } from "node:net";
-import {
-  PaymentRequest,
-  generateEd25519KeyPair,
-  hash,
-  verifyOfferEnvelope,
-  verifyPaymentRequestSig,
-  type Receipt,
-} from "@handshake/core";
-import { memoryMandateLedger } from "@handshake/db";
+import { PaymentRequest, generateEd25519KeyPair, hash } from "@handshake/core";
 import express from "express";
 import request from "supertest";
 import { expect } from "vitest";
@@ -19,6 +11,9 @@ import { createApp as createMerchantApp } from "../../merchant/src/app.js";
 import { loadSelf } from "../../merchant/src/offers/service.js";
 import { memoryOfferStore, type ProductRow } from "../../merchant/src/offers/store.js";
 import { memoryWebhookStore } from "../../merchant/src/webhooks/store.js";
+import { memoryGateStore } from "../../merchant/src/gate/store.js";
+import type { GateContext } from "../../merchant/src/gate/verify.js";
+import { fakePayPal } from "../../merchant/test/fake-paypal.js";
 import type { Planner, PlannerMessage, ToolCall } from "../src/agent/planner.js";
 import { createApp } from "../src/app.js";
 import type { AgentConfig, AppContext } from "../src/context.js";
@@ -41,7 +36,6 @@ export const PRODUCTS: ProductRow[] = [
 
 export interface Paid {
   request: PaymentRequest;
-  receipt: Receipt;
 }
 
 /** Scripted LLM: each step sees the conversation so far and returns the next reply. */
@@ -102,34 +96,49 @@ export async function harness(opts: { paypalMerchantIdInRegistry?: string } = {}
     products: PRODUCTS,
   });
   const self = await loadSelf(offerStore, "agt_m_corner", merchantKeys.privateKey);
-  const paid: Paid[] = [];
+  // The wallet's tables; in Postgres the gate reads the same rows (registry passkeys, mandates).
+  const store = memoryWalletStore({ merchants, agents });
+  const gate = memoryGateStore({
+    links: {
+      offer: (id) => {
+        const o = offerStore.offers.get(id);
+        return o && { id, agentId: o.agentId, hash: hash(o.offer.payload), status: o.status, holdUntil: o.holdUntil };
+      },
+      setOfferStatus: (id, status) => {
+        const o = offerStore.offers.get(id);
+        if (o) o.status = status as typeof o.status;
+      },
+      passkey: async (id) => {
+        const c = await store.getCredential(id);
+        return c && { credentialId: c.credentialId, userId: c.userId, publicKey: c.publicKey };
+      },
+      mandate: async (id) => {
+        const m = await store.getMandate(id);
+        return m && { status: m.status, hash: m.hash };
+      },
+      categories: (skus) =>
+        new Map(skus.flatMap((s) => (offerStore.products.has(s) ? [[s, offerStore.products.get(s)!.category]] : []))),
+    },
+  });
+  const paypal = fakePayPal({ autoApprove: true });
+  const gateCtx: GateContext = {
+    store: gate.store,
+    registry: offerStore,
+    self,
+    paypal: paypal.client,
+    risk: { inspect: async () => ({ action: "none", reason: "test" }) },
+    webauthn: { origin: webauthn.origin, rpId: webauthn.rpId },
+    webUrl: "https://wallet.handshake.test",
+    now: Date.now,
+    log: () => {},
+  };
+  // Every request the gate saw, so tests can inspect what was paid.
+  const requests = new Map<string, PaymentRequest>();
   const merchantApp = express();
-  merchantApp.post("/payments", express.json({ limit: "64kb" }), (req, res) => {
+  merchantApp.post("/payments", express.json({ limit: "64kb" }), (req, _res, next) => {
     const parsed = PaymentRequest.safeParse(req.body);
-    if (!parsed.success) return void res.status(400).json({ error: "SCHEMA_INVALID" });
-    const pr = parsed.data;
-    try {
-      verifyPaymentRequestSig(pr, { id: "agt_c_wallet", publicKey: consumerKeys.publicKey });
-      verifyOfferEnvelope(
-        pr.offer,
-        { id: "agt_m_corner", publicKey: merchantKeys.publicKey },
-        Math.floor(Date.now() / 1000),
-      );
-    } catch (e) {
-      return void res.status(401).json({ error: (e as { code?: string }).code ?? "INTERNAL" });
-    }
-    const a = pr.authorization;
-    const receipt: Receipt = {
-      requestId: pr.requestId,
-      offerHash: hash(pr.offer.payload),
-      approvalHash: hash(a.kind === "passkey" ? a.cartApproval : a.cart),
-      paypalOrderId: "ORDER-TEST",
-      authorizationId: "AUTH-TEST",
-      status: "authorized",
-      decisions: [],
-    };
-    paid.push({ request: pr, receipt });
-    res.json(receipt);
+    if (parsed.success) requests.set(parsed.data.requestId, parsed.data);
+    next();
   });
   merchantApp.use(
     createMerchantApp({
@@ -140,6 +149,7 @@ export async function harness(opts: { paypalMerchantIdInRegistry?: string } = {}
         log: () => {},
       },
       offers: { store: offerStore, self, now: Date.now },
+      gate: { ctx: gateCtx, adminToken: "admin-token-0123456789abcdef" },
       demoMode: false,
     }),
   );
@@ -147,8 +157,8 @@ export async function harness(opts: { paypalMerchantIdInRegistry?: string } = {}
   await new Promise<void>((r) => server.once("listening", () => r()));
   const merchantUrl = `http://127.0.0.1:${(server.address() as AddressInfo).port}`;
 
-  const ledger = memoryMandateLedger();
-  const store = memoryWalletStore({ merchants, agents });
+  // The gate's ledger: the wallet reads the same mandate_spend rows (D17).
+  const ledger = gate.ledger;
   const agent: AgentConfig = {
     privateKey: consumerKeys.privateKey,
     merchantUrls: [merchantUrl],
@@ -156,6 +166,7 @@ export async function harness(opts: { paypalMerchantIdInRegistry?: string } = {}
     spent: (k) => ledger.spent(k),
     planner: scriptedPlanner([]),
     approvalPollMs: 5,
+    paypalPollMs: 5,
   };
   const ctx: AppContext = { store, webauthn, consumerAgentId: "agt_c_wallet", now: Date.now, agent };
   const app = createApp(ctx);
@@ -177,7 +188,19 @@ export async function harness(opts: { paypalMerchantIdInRegistry?: string } = {}
     store,
     ledger,
     offerStore,
-    paid,
+    /** Requests the gate authorized, in order. */
+    get paid(): Paid[] {
+      return [...gate.orders.values()]
+        .filter((o) => o.status === "authorized" || o.status === "captured")
+        .sort((a, b) => a.createdAt - b.createdAt)
+        .flatMap((o) => {
+          const request = requests.get(o.requestId);
+          return request ? [{ request }] : [];
+        });
+    },
+    gate,
+    gateCtx,
+    paypal,
     merchantUrl,
     merchantKeys,
     consumerKeys,

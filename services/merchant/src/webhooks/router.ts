@@ -26,6 +26,43 @@ function secretMatches(given: unknown, expected: string): boolean {
   return a.length === b.length && timingSafeEqual(a, b);
 }
 
+const SIGNATURE_HEADERS = [
+  "paypal-auth-algo",
+  "paypal-cert-url",
+  "paypal-transmission-id",
+  "paypal-transmission-sig",
+  "paypal-transmission-time",
+];
+
+/** Cheap checks before PayPal's (paid, slow) verify call: a forgery without PayPal's headers stops here. */
+export function plausiblePayPalDelivery(headers: Record<string, string | string[] | undefined>): boolean {
+  if (!SIGNATURE_HEADERS.every((h) => typeof headers[h] === "string" && (headers[h] as string).length <= 2048)) return false;
+  try {
+    const cert = new URL(headers["paypal-cert-url"] as string);
+    return cert.protocol === "https:" && (cert.hostname === "paypal.com" || cert.hostname.endsWith(".paypal.com"));
+  } catch {
+    return false;
+  }
+}
+
+/** Fixed window per client: at most `limit` requests each `windowMs`. In memory: one instance. */
+export function rateLimiter(limit: number, windowMs: number, now: () => number = Date.now) {
+  const hits = new Map<string, { start: number; n: number }>();
+  return (key: string): boolean => {
+    const t = now();
+    const h = hits.get(key);
+    if (!h || t - h.start >= windowMs) {
+      if (hits.size > 10_000) hits.clear();
+      hits.set(key, { start: t, n: 1 });
+      return true;
+    }
+    h.n++;
+    return h.n <= limit;
+  };
+}
+
+export const WEBHOOK_RATE_LIMIT = 120;
+
 export interface WebhookRouterOptions {
   demoMode: boolean;
   /** Required when demoMode is on; callers of the simulator send it in x-demo-secret. */
@@ -37,8 +74,11 @@ export function webhookRouter<Tx>(deps: WebhookDeps<Tx>, opts: WebhookRouterOpti
     throw new Error(`DEMO_MODE requires DEMO_SECRET of at least ${MIN_DEMO_SECRET_LENGTH} characters`);
   }
   const router = Router();
+  const allow = rateLimiter(WEBHOOK_RATE_LIMIT, 60_000);
 
   router.post("/webhooks/paypal", rawJson, async (req, res) => {
+    if (!allow(req.ip ?? "unknown")) return void res.status(429).json({ outcome: "rate_limited" });
+    if (!plausiblePayPalDelivery(req.headers)) return void res.status(400).json({ outcome: "forged" });
     const rawBody = Buffer.isBuffer(req.body) ? req.body.toString("utf8") : "";
     const result = await handlePayPalWebhook(deps, { headers: req.headers, rawBody });
     res.status(result.httpStatus).json({ outcome: result.outcome });

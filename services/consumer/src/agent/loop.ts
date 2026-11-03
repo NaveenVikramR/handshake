@@ -2,12 +2,23 @@
 import { readFileSync } from "node:fs";
 import type { AgentConfig, AppContext } from "../context.js";
 import type { PlannerMessage } from "./planner.js";
-import { TOOL_SPECS, runTool, type AgentEvent, type ChatSession } from "./tools.js";
+import type { Receipt } from "@handshake/core";
+import { STATUS_MEANING, TOOL_SPECS, runTool, type AgentEvent, type ChatSession } from "./tools.js";
 
 export const MAX_TOOL_ROUNDS = 6;
 const MAX_CALLS_PER_ROUND = 4;
 
 const SYSTEM_PROMPT = readFileSync(new URL("./prompts/system.md", import.meta.url), "utf8");
+
+/**
+ * The model may not claim more than the order state supports: before capture, a message saying the
+ * purchase is complete or paid is replaced by the code's own summary.
+ */
+export function honestFinal(text: string, status: Receipt["status"] | undefined): string {
+  if (!status || status === "captured") return text;
+  if (!/\b(complete[d]?|paid|done|finished)\b/i.test(text)) return text;
+  return `Order status: ${STATUS_MEANING[status]}.`;
+}
 
 export interface ChatInput {
   userId: string;
@@ -56,7 +67,7 @@ export async function runChat(
     const { content, toolCalls } = await agent.planner.next(messages, TOOL_SPECS);
     messages.push({ role: "assistant", content, toolCalls });
     if (toolCalls.length === 0) {
-      emit({ type: "message", text: content ?? "" });
+      emit({ type: "message", text: honestFinal(content ?? "", session.lastStatus) });
       return;
     }
     for (const [i, call] of toolCalls.entries()) {

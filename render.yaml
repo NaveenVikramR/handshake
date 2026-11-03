@@ -26,7 +26,8 @@ services:
     # The env check runs first so a missing dashboard variable is named in the log.
     buildCommand: >-
       node scripts/require-env.mjs DATABASE_URL DIRECT_URL PAYPAL_CLIENT_ID PAYPAL_CLIENT_SECRET
-      PAYPAL_WEBHOOK_ID MERCHANT_AGENT_ID MERCHANT_AGENT_PRIVATE_KEY &&
+      PAYPAL_WEBHOOK_ID MERCHANT_AGENT_ID MERCHANT_AGENT_PRIVATE_KEY MERCHANT_ADMIN_TOKEN WEB_URL
+      WEBAUTHN_ORIGIN WEBAUTHN_RP_ID LLM_API_KEY &&
       npx -y pnpm@10.34.9 install --frozen-lockfile --filter "@handshake/merchant..." &&
       npx -y pnpm@10.34.9 --filter @handshake/db exec prisma migrate deploy
     startCommand: NODE_ENV=production npx -y pnpm@10.34.9 --filter @handshake/merchant start
@@ -52,4 +53,20 @@ services:
       - key: MERCHANT_AGENT_ID
         sync: false
       - key: MERCHANT_AGENT_PRIVATE_KEY
+        sync: false
+      # M7 gate: admin token for /orders/:id/fulfil, wallet origin for passkeys and PayPal return
+      # pages, and the risk inspector's LLM.
+      - key: MERCHANT_ADMIN_TOKEN
+        sync: false
+      - key: WEB_URL
+        sync: false
+      - key: WEBAUTHN_ORIGIN
+        sync: false
+      - key: WEBAUTHN_RP_ID
+        sync: false
+      - key: LLM_BASE_URL
+        value: https://api.groq.com/openai/v1
+      - key: LLM_MODEL
+        value: openai/gpt-oss-120b
+      - key: LLM_API_KEY
         sync: false

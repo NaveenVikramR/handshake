@@ -22,6 +22,8 @@ export interface AgentConfig {
   fetch?: typeof fetch;
   /** How often a step-up waits re-reads the approval; tests shorten it. */
   approvalPollMs?: number;
+  /** How often to ask the gate whether the buyer approved a first order on PayPal. */
+  paypalPollMs?: number;
 }
 
 export interface AppContext {

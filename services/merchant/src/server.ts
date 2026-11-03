@@ -2,6 +2,11 @@ import { existsSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import { createDb } from "@handshake/db";
 import { createApp } from "./app.js";
+import { orderEventHandler } from "./gate/order-events.js";
+import { openAIRiskModel, riskInspector } from "./gate/risk.js";
+import { startOrderExpiry } from "./gate/settle.js";
+import { prismaGateStore } from "./gate/store.js";
+import type { GateContext } from "./gate/verify.js";
 import { startHoldExpiry } from "./offers/expiry.js";
 import { loadSelf } from "./offers/service.js";
 import { prismaOfferStore } from "./offers/store.js";
@@ -24,6 +29,12 @@ const paypal = createPayPalClient({
   clientSecret: process.env.PAYPAL_CLIENT_SECRET ?? "",
 });
 
+function required(name: string): string {
+  const v = process.env[name];
+  if (!v) throw new Error(`${name} is not set`);
+  return v;
+}
+
 const agentId = process.env.MERCHANT_AGENT_ID ?? "";
 const agentKey = process.env.MERCHANT_AGENT_PRIVATE_KEY ?? "";
 if (!agentId || !agentKey) throw new Error("MERCHANT_AGENT_ID and MERCHANT_AGENT_PRIVATE_KEY must be set");
@@ -33,10 +44,26 @@ const offerStore = prismaOfferStore(db);
 const self = await loadSelf(offerStore, agentId, agentKey);
 startHoldExpiry(offerStore, Date.now);
 
+const gateStore = prismaGateStore(db);
+const gate: GateContext = {
+  store: gateStore,
+  registry: offerStore,
+  self,
+  paypal,
+  risk: riskInspector(
+    openAIRiskModel({ baseURL: required("LLM_BASE_URL"), apiKey: required("LLM_API_KEY"), model: required("LLM_MODEL") }),
+  ),
+  webauthn: { origin: required("WEBAUTHN_ORIGIN"), rpId: required("WEBAUTHN_RP_ID") },
+  webUrl: required("WEB_URL"),
+  now: Date.now,
+};
+startOrderExpiry(gate);
+
 const demoSecret = process.env.DEMO_SECRET;
 const app = createApp({
-  webhooks: { paypal, store: prismaWebhookStore(db), webhookId },
+  webhooks: { paypal, store: prismaWebhookStore(db), webhookId, onOrderEvent: orderEventHandler(gateStore) },
   offers: { store: offerStore, self, now: Date.now },
+  gate: { ctx: gate, adminToken: required("MERCHANT_ADMIN_TOKEN") },
   demoMode,
   ...(demoSecret === undefined ? {} : { demoSecret }),
 });

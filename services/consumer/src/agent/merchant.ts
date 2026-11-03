@@ -41,6 +41,22 @@ export const Catalog = z.object({
 export type Catalog = z.infer<typeof Catalog>;
 
 const OfferResponse = z.object({ offer: SignedOffer });
+
+/** The gate's answer: a receipt, or PayPal's approve link for a first (wallet-saving) order. */
+const PayerAction = z.object({
+  requestId: z.string(),
+  status: z.literal("payer_action_required"),
+  approveUrl: z.url({ protocol: /^https$/, hostname: /(^|\.)paypal\.com$/ }),
+});
+export type PaymentOutcome =
+  | { kind: "receipt"; receipt: Receipt }
+  | { kind: "payer_action"; requestId: string; approveUrl: string };
+const Outcome = z.union([Receipt, PayerAction]).transform(
+  (b): PaymentOutcome =>
+    "approveUrl" in b
+      ? { kind: "payer_action", requestId: b.requestId, approveUrl: b.approveUrl }
+      : { kind: "receipt", receipt: b },
+);
 const ErrorResponse = z.object({ error: z.string() });
 
 export interface MerchantClient {
@@ -48,7 +64,9 @@ export interface MerchantClient {
   card(): Promise<AgentCard>;
   catalog(): Promise<Catalog>;
   requestOffer(req: SignedOfferRequest): Promise<SignedOffer>;
-  pay(req: PaymentRequest): Promise<Receipt>;
+  pay(req: PaymentRequest): Promise<PaymentOutcome>;
+  /** Asks the gate to finish a payment the buyer approved on PayPal; same outcome shape. */
+  complete(requestId: string): Promise<PaymentOutcome>;
 }
 
 /** A merchant error code we pass on (e.g. OUT_OF_STOCK); anything unknown becomes MERCHANT_UNTRUSTED. */
@@ -91,6 +109,7 @@ export function merchantClient(baseUrl: string, doFetch: typeof fetch = fetch): 
     card: () => call(AgentCard, "/.well-known/agent.json"),
     catalog: () => call(Catalog, "/catalog"),
     requestOffer: async (req) => (await call(OfferResponse, "/offers", req)).offer,
-    pay: (req) => call(Receipt, "/payments", req),
+    pay: (req) => call(Outcome, "/payments", req),
+    complete: (requestId) => call(Outcome, `/payments/${encodeURIComponent(requestId)}/complete`, {}),
   };
 }

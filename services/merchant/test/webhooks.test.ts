@@ -5,6 +5,7 @@ import { createApp } from "../src/app.js";
 import { InvalidTransitionError } from "../src/orders/state.js";
 import { orderEventFor, type WebhookEvent } from "../src/webhooks/events.js";
 import { handlePayPalWebhook, type WebhookDeps } from "../src/webhooks/handler.js";
+import { WEBHOOK_RATE_LIMIT } from "../src/webhooks/router.js";
 import { memoryWebhookStore } from "../src/webhooks/store.js";
 
 const event = (id: string, event_type: string, resourceId = "RES-1") =>
@@ -35,6 +36,13 @@ function setup(verify: boolean | "throw" = true, opts: { failApply?: boolean | "
 }
 
 const req = (rawBody: string) => ({ headers: {}, rawBody });
+const PAYPAL_HEADERS = {
+  "paypal-auth-algo": "SHA256withRSA",
+  "paypal-cert-url": "https://api-m.sandbox.paypal.com/v1/notifications/certs/CERT-1",
+  "paypal-transmission-id": "T-1",
+  "paypal-transmission-sig": "c2ln",
+  "paypal-transmission-time": "2026-11-03T10:00:00Z",
+};
 const SECRET = "demo-secret-0123456789";
 
 describe("handlePayPalWebhook", () => {
@@ -135,7 +143,11 @@ describe("orderEventFor", () => {
     expect(orderEventFor(ev(type))).toEqual({ ref: { kind, id: "R" }, to });
   });
 
-  it.each(["CHECKOUT.ORDER.APPROVED", "PAYMENT.CAPTURE.PENDING", "PAYMENT.CAPTURE.REVERSED", "SOMETHING.ELSE"])(
+  it("maps PAYMENT.CAPTURE.REVERSED (chargeback) to refunded", () => {
+    expect(orderEventFor(ev("PAYMENT.CAPTURE.REVERSED"))).toMatchObject({ to: "refunded" });
+  });
+
+  it.each(["CHECKOUT.ORDER.APPROVED", "PAYMENT.CAPTURE.PENDING", "SOMETHING.ELSE"])(
     "does not move the state machine for %s",
     (type) => {
       expect(orderEventFor(ev(type))).toBeUndefined();
@@ -148,9 +160,36 @@ describe("webhook routes", () => {
     const { deps, verifyCalls } = setup();
     const raw = '{ "id":"WH-9",   "event_type":"CHECKOUT.ORDER.APPROVED", "resource":{"id":"O-1"} }';
     const app = createApp({ webhooks: deps, demoMode: false });
-    const res = await request(app).post("/webhooks/paypal").set("Content-Type", "application/json").send(raw);
+    const res = await request(app)
+      .post("/webhooks/paypal")
+      .set("Content-Type", "application/json")
+      .set(PAYPAL_HEADERS)
+      .send(raw);
     expect(res.status).toBe(200);
     expect(verifyCalls).toEqual([raw]);
+  });
+
+  it("rejects a delivery without PayPal's headers (or with a non-PayPal cert URL) before calling verify", async () => {
+    const { deps, verifyCalls } = setup();
+    const app = createApp({ webhooks: deps, demoMode: false });
+    const bare = await request(app).post("/webhooks/paypal").set("Content-Type", "application/json").send("{}");
+    const evilCert = await request(app)
+      .post("/webhooks/paypal")
+      .set("Content-Type", "application/json")
+      .set({ ...PAYPAL_HEADERS, "paypal-cert-url": "https://evil.example/cert" })
+      .send("{}");
+    expect([bare.status, evilCert.status]).toEqual([400, 400]);
+    expect(verifyCalls).toEqual([]);
+  });
+
+  it("rate-limits deliveries per client", async () => {
+    const { deps } = setup();
+    const app = createApp({ webhooks: deps, demoMode: false });
+    const statuses: number[] = [];
+    for (let i = 0; i < WEBHOOK_RATE_LIMIT + 1; i++) {
+      statuses.push((await request(app).post("/webhooks/paypal").set("Content-Type", "application/json").send("{}")).status);
+    }
+    expect(statuses.at(-1)).toBe(429);
   });
 
   it("returns 400 for a forged delivery", async () => {
@@ -159,6 +198,7 @@ describe("webhook routes", () => {
     const res = await request(app)
       .post("/webhooks/paypal")
       .set("Content-Type", "application/json")
+      .set(PAYPAL_HEADERS)
       .send(event("WH-1", "PAYMENT.CAPTURE.COMPLETED"));
     expect(res.status).toBe(400);
     expect(res.body).toEqual({ outcome: "forged" });

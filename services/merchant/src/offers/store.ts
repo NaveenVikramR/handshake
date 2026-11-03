@@ -105,7 +105,7 @@ export function prismaOfferStore(db: PrismaClient): OfferStore {
         // Serialise this agent's offer creation so the cap can't be raced past.
         await tx.$queryRaw`SELECT 1 FROM registry_agents WHERE id = ${agentId} FOR UPDATE`;
         const { count: fresh } = await tx.usedNonce.createMany({
-          data: [{ nonce, exp: new Date(nonceExp * 1000) }],
+          data: [{ kid: agentId, type: "offer_request", nonce, exp: new Date(nonceExp * 1000) }],
           skipDuplicates: true,
         });
         if (fresh === 0) throw new HandshakeError("APPROVAL_REPLAY", "offer request already used");
@@ -198,7 +198,7 @@ export function memoryOfferStore(seed: {
     },
     async createOffer(input) {
       const { agentId, nonce, lines, maxOpen, maxHeldUnits, now } = input;
-      if (nonces.has(nonce)) throw new HandshakeError("APPROVAL_REPLAY", "offer request already used");
+      if (nonces.has(`${agentId}|${nonce}`)) throw new HandshakeError("APPROVAL_REPLAY", "offer request already used");
       const open = [...offers.values()].filter(
         (o) => o.agentId === agentId && o.status === "open" && o.holdUntil >= now,
       );
@@ -214,7 +214,7 @@ export function memoryOfferStore(seed: {
         rows.set(sku, { ...p });
       }
       const priced = input.build(rows);
-      nonces.add(nonce);
+      nonces.add(`${agentId}|${nonce}`);
       for (const { sku, qty } of lines) products.get(sku)!.stock -= qty;
       const p = priced.offer.payload;
       offers.set(p.offerId, { agentId, status: "open", holdUntil: p.holdUntil * 1000, lines, offer: priced.offer });

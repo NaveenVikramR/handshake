@@ -55,17 +55,18 @@ Accept: offer verifies with core; tampered offer rejected.
 Accept: chat request ends in a receipt; LLM cannot change amounts (test).
 
 ## M7 Merchant gate + settlement — Thu 5 Nov  (SPEC §6, §7.1)
-- [ ] gate steps 1–9 in order, each writing a decision
-- [ ] risk inspector (rules + LLM, escalate-only)
-- [ ] fulfil → capture → tracking; failure/expiry → void; receipt chain
-- [ ] Single `verifyPaymentRequest(req, ctx)` wrapper that runs every gate check in SPEC §6 order; route handlers call only this
-- [ ] Payee binding: `offer.merchantAgentId`, `merchantId` and `paypalMerchantId` must equal this merchant's own configured ids, else `OFFER_SIG_INVALID`
-- [ ] M2 follow-ups: `onOrderEvent` refuses to fulfil/capture/refund on `meta.simulated` events; reconciliation table for webhook state conflicts (D15); one stored `PayPal-Request-Id` per order + operation; partial refund vs full and `PAYMENT.CAPTURE.REVERSED` tracking; rate-limit `/webhooks/paypal` + cheap pre-checks before verify
-- [ ] M3 follow-ups: gate 6a uses core `verifyApprovalAssertion` against `registry_passkeys` and compare-and-sets its `signCount`; step 7 records the payload nonce atomically before any PayPal call (synced passkeys always report 0, so the nonce is the only replay guard); attack test for a replayed passkey approval
-- [ ] M5 follow-ups (D18): gate's offer CAS is `open → used` only while `holdUntil > now`; `used_nonces` keyed by (`kid`, `type`, `nonce`) with cleanup by `exp`; re-check this merchant's registry status per request (or short-TTL cache) instead of only at startup
-- [ ] Agent final message reflects the real order state (authorized = 'payment approved, held until delivery'; captured = 'paid'); never say 'complete' before capture.
-- [ ] M6 follow-ups (D21): `POST /payments` accepts the M6 payment request, and a real chat ends in a gate-issued receipt (M6 proved it against a stub); categories for 6b from `products`, never the request; spend reserved atomically in the tx that marks the offer used; attack test: parallel chats splitting an order across the period limit
-- [ ] M4 follow-ups (D17): ledger flow `checkMandateScope` → `reserve` → nonce → order `pending_authorization` with its `periodStart` → commit → PayPal outside the tx → on failure void + `release` in the order-state CAS tx (once per order); `periodStart` from the gate clock, never `cart.iat`; mandate proof re-checked with `verifyMandateApproval(…, { fresh: false })`; map unknown-mandate FK errors to `MANDATE_INVALID`
+- [x] gate steps 1–9 in order, each writing a decision
+- [x] risk inspector (rules + LLM, escalate-only)
+- [x] fulfil → capture → tracking; failure/expiry → void; receipt chain
+- [x] Single `verifyPaymentRequest(req, ctx)` wrapper that runs every gate check in SPEC §6 order; route handlers call only this
+- [x] Payee binding: `offer.merchantAgentId`, `merchantId` and `paypalMerchantId` must equal this merchant's own configured ids, else `OFFER_SIG_INVALID`
+- [x] M2 follow-ups: `onOrderEvent` refuses to fulfil/capture/refund on `meta.simulated` events; reconciliation table for webhook state conflicts (D15); one stored `PayPal-Request-Id` per order + operation; partial refund vs full and `PAYMENT.CAPTURE.REVERSED` tracking; rate-limit `/webhooks/paypal` + cheap pre-checks before verify
+- [x] M3 follow-ups: gate 6a uses core `verifyApprovalAssertion` against `registry_passkeys` and compare-and-sets its `signCount`; step 7 records the payload nonce atomically before any PayPal call (synced passkeys always report 0, so the nonce is the only replay guard); attack test for a replayed passkey approval
+- [x] M5 follow-ups (D18): gate's offer CAS is `open → used` only while `holdUntil > now`; `used_nonces` keyed by (`kid`, `type`, `nonce`) with cleanup by `exp`; re-check this merchant's registry status per request (or short-TTL cache) instead of only at startup
+- [x] Agent final message reflects the real order state (authorized = 'payment approved, held until delivery'; captured = 'paid'); never say 'complete' before capture.
+- [x] M6 follow-ups (D21): `POST /payments` accepts the M6 payment request, and a real chat ends in a gate-issued receipt (M6 proved it against a stub); categories for 6b from `products`, never the request; spend reserved atomically in the tx that marks the offer used; attack test: parallel chats splitting an order across the period limit
+- [x] M4 follow-ups (D17): ledger flow `checkMandateScope` → `reserve` → nonce → order `pending_authorization` with its `periodStart` → commit → PayPal outside the tx → on failure void + `release` in the order-state CAS tx (once per order); `periodStart` from the gate clock, never `cart.iat`; mandate proof re-checked with `verifyMandateApproval(…, { fresh: false })`; map unknown-mandate FK errors to `MANDATE_INVALID`
+- [ ] Live sandbox end-to-end: chat → gate → PayPal approve (first time) → vault → fulfil → capture → tracking, with a real buyer approval
 Accept: happy path end-to-end in sandbox.
 
 ## M8 Web UI — Fri 6 Nov
@@ -73,6 +74,7 @@ Accept: happy path end-to-end in sandbox.
 - [ ] register/authenticate endpoints; challenge = `hash(payload)` (moved from M3)
 - [ ] `GET /mandates/:id` renders the mandate from server state (as approvals do) so the human approves what was stored, not what the client drew; mandate revocation (status `revoked`, checked by the gate)
 - [ ] M6 follow-ups: `deleteSession` (logout) and session revocation; mark a pending approval cancelled when its chat closes; pin each `MERCHANT_URL` to its `merchantId` and refuse duplicates
+- [ ] M7 follow-ups (D22): confirm the PayPal payer before a saved wallet is activated (show payer email, passkey step; refuse a different payer) so a phished approve link can't attach a victim's wallet; opaque per-order token in PayPal return URLs instead of the request id, and rate-limit `/payments/:id/complete`; tracking-only retry for a captured order whose tracking call failed; void the authorization when a webhook reports a declined capture; `pnpm paypal:webhook` can't add `PAYMENT.CAPTURE.REVERSED` to the existing webhook (PATCH it, or re-create); confirm the REVERSED resource shape in `docs/PAYPAL.md`
 - [ ] merchant dashboard: live SSE feed of agents, decisions, PayPal states
 - [ ] shopkeeper assistant panel via `@paypal/agent-toolkit` (confirm before acting)
 Accept: full demo runs from the UI on laptop + phone.

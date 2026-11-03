@@ -11,6 +11,7 @@ export const WEBHOOK_EVENT_TYPES = [
   "PAYMENT.CAPTURE.DECLINED",
   "PAYMENT.CAPTURE.DENIED",
   "PAYMENT.CAPTURE.REFUNDED",
+  "PAYMENT.CAPTURE.REVERSED",
 ];
 
 /** `<merchantUrl>/webhooks/paypal`; https only, since PayPal delivers to public HTTPS endpoints. */
