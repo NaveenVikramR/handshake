@@ -71,10 +71,12 @@ Accept: happy path end-to-end in sandbox.
 
 ## M8 Web UI — Fri 6 Nov
 - [ ] wallet (passkey setup, mandates, activity), phone approval page showing exact cart
+- [ ] Render web service named `handshake-web` in render.yaml (serves apps/web at https://handshake-web.onrender.com); the merchant's `WEB_URL`/`WEBAUTHN_ORIGIN`/`WEBAUTHN_RP_ID` on Render already point there, so the name must not change
 - [ ] register/authenticate endpoints; challenge = `hash(payload)` (moved from M3)
 - [ ] `GET /mandates/:id` renders the mandate from server state (as approvals do) so the human approves what was stored, not what the client drew; mandate revocation (status `revoked`, checked by the gate)
 - [ ] M6 follow-ups: `deleteSession` (logout) and session revocation; mark a pending approval cancelled when its chat closes; pin each `MERCHANT_URL` to its `merchantId` and refuse duplicates
-- [ ] M7 follow-ups (D22): confirm the PayPal payer before a saved wallet is activated (show payer email, passkey step; refuse a different payer) so a phished approve link can't attach a victim's wallet; opaque per-order token in PayPal return URLs instead of the request id, and rate-limit `/payments/:id/complete`; tracking-only retry for a captured order whose tracking call failed; void the authorization when a webhook reports a declined capture; `pnpm paypal:webhook` can't add `PAYMENT.CAPTURE.REVERSED` to the existing webhook (PATCH it, or re-create); confirm the REVERSED resource shape in `docs/PAYPAL.md`
+- [ ] Saved-wallet payer check: before a vault id is used for agent payments, the wallet shows the PayPal payer (email) and the user confirms with a passkey; a later payer that differs is refused, so a phished approve link can't attach someone else's wallet (D22)
+- [ ] M7 follow-ups (D22): opaque per-order token in PayPal return URLs instead of the request id, and rate-limit `/payments/:id/complete`; tracking-only retry for a captured order whose tracking call failed; void the authorization when a webhook reports a declined capture; `pnpm paypal:webhook` can't add `PAYMENT.CAPTURE.REVERSED` to the existing webhook (PATCH it, or re-create); confirm the REVERSED resource shape in `docs/PAYPAL.md`
 - [ ] merchant dashboard: live SSE feed of agents, decisions, PayPal states
 - [ ] shopkeeper assistant panel via `@paypal/agent-toolkit` (confirm before acting)
 Accept: full demo runs from the UI on laptop + phone.
