@@ -7,7 +7,7 @@
     "node": ">=24"
   },
   "scripts": {
-    "dev": "pnpm -r --parallel --if-present dev",
+    "dev": "pnpm -r --parallel --if-present --filter !@handshake/passkey-hello dev",
     "test": "vitest run",
     "test:db": "vitest run --mode db",
     "typecheck": "pnpm -r --if-present typecheck",

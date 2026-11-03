@@ -1,4 +1,10 @@
+import { existsSync } from "node:fs";
+import { fileURLToPath } from "node:url";
 import type { NextConfig } from "next";
+
+// Local dev shares the repo-root env file with the services (Render sets real env vars instead).
+const rootEnv = fileURLToPath(new URL("../../.env", import.meta.url));
+if (existsSync(rootEnv)) process.loadEnvFile(rootEnv);
 
 // The browser only ever talks to this origin (the WebAuthn origin). Server-side route handlers in
 // app/api forward to the consumer and merchant services, adding credentials from httpOnly cookies.
