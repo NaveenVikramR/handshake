@@ -12,3 +12,6 @@ coverage/
 # Prisma generated client
 **/generated/
 *.tsbuildinfo
+
+# pnpm e2e:deployed output
+e2e-screenshots/

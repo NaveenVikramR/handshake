@@ -1,0 +1,12 @@
+{
+  "name": "@handshake/e2e",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "deployed": "tsx deployed.ts",
+    "typecheck": "tsc -p ."
+  },
+  "devDependencies": {
+    "playwright": "1.64.1"
+  }
+}
