@@ -64,15 +64,18 @@ services:
       - key: MERCHANT_AGENT_PRIVATE_KEY
         sync: false
       # M7 gate: admin token for /orders/:id/fulfil, wallet origin for passkeys and PayPal return
-      # pages, and the risk inspector's LLM.
+      # pages, and the risk inspector's LLM. The origin values aren't secrets: pinned here (D27) so a
+      # Blueprint sync keeps them equal to the consumer's.
       - key: MERCHANT_ADMIN_TOKEN
         sync: false
       - key: WEB_URL
-        sync: false
+        value: https://handshake-web-debi.onrender.com
       - key: WEBAUTHN_ORIGIN
-        sync: false
+        value: https://handshake-web-debi.onrender.com
       - key: WEBAUTHN_RP_ID
-        sync: false
+        value: handshake-web-debi.onrender.com
+      - key: WEBAUTHN_RP_NAME
+        value: Handshake
       - key: LLM_BASE_URL
         value: https://api.groq.com/openai/v1
       - key: LLM_MODEL
