@@ -80,7 +80,7 @@ Accept: full demo runs from the UI on laptop + phone.
 Accept: 0 unauthorized authorizations, 0 duplicate charges.
 
 ## M10 Polish — Sun 8 Nov
-- [ ] Render web service named `handshake-web` in render.yaml (serves apps/web at https://handshake-web.onrender.com); the merchant's `WEB_URL`/`WEBAUTHN_ORIGIN`/`WEBAUTHN_RP_ID` on Render already point there, so the name must not change (moved from M8)
+- [ ] Render web service named `handshake-web` in render.yaml (serves apps/web at https://handshake-web-debi.onrender.com, Render's URL for it since the bare name was taken); the merchant's and consumer's `WEB_URL`/`WEBAUTHN_ORIGIN`/`WEBAUTHN_RP_ID` point there (moved from M8)
 - [ ] Render: all three services (`handshake-merchant`, `handshake-consumer`, `handshake-web`) deployed from render.yaml against Neon `dev`, health checks green, env set per the dashboard checklist (M11 switches them to `main`)
 - [ ] register/authenticate endpoints; challenge = `hash(payload)` (moved from M3) (moved from M8)
 - [ ] wallet (passkey setup, mandates, activity), phone approval page showing exact cart (built in apps/web, API-tested and `next build` clean; tick after a browser + phone run on Render) (moved from M8)

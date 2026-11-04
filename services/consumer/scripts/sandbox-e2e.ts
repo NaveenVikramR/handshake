@@ -91,7 +91,7 @@ const gateCtx: GateContext = {
   paypal,
   risk: riskInspector(openAIRiskModel(llm)),
   webauthn: { origin: webauthn.origin, rpId: webauthn.rpId },
-  webUrl: process.env.WEB_URL ?? "https://handshake-web.onrender.com",
+  webUrl: process.env.WEB_URL ?? "https://handshake-web-debi.onrender.com",
   now: Date.now,
   log: (msg, f) => say("merchant:", msg, JSON.stringify(f)),
 };

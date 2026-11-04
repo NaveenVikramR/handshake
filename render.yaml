@@ -1,8 +1,8 @@
 # Render Blueprint.
 # M0: passkey hello-world over HTTPS for phone testing.
 # WEBAUTHN_ORIGIN / WEBAUTHN_RP_ID default to Render's RENDER_EXTERNAL_URL, so no env setup is needed.
-# M8 adds the wallet web app as `handshake-web` (https://handshake-web.onrender.com): the merchant's
-# WEB_URL, WEBAUTHN_ORIGIN and WEBAUTHN_RP_ID on Render already point at that name, so keep it.
+# M8 adds the wallet web app as `handshake-web`. Render gave it https://handshake-web-debi.onrender.com
+# (the bare name was taken): that host is the WebAuthn origin and RP ID on the merchant and the consumer.
 # M5: merchant service. Uses the Neon dev branch until M11 (D19). Secrets are sync: false: set them in
 # the Render dashboard, never here.
 services:
@@ -80,8 +80,8 @@ services:
       - key: LLM_API_KEY
         sync: false
 
-  # M8: wallet + phone approval + merchant dashboard. The name fixes https://handshake-web.onrender.com,
-  # which is the WebAuthn origin and RP ID everywhere: don't rename it.
+  # M8: wallet + phone approval + merchant dashboard, served at https://handshake-web-debi.onrender.com
+  # (Render's URL for this service), which is the WebAuthn origin and RP ID everywhere.
   - type: web
     name: handshake-web
     runtime: node
@@ -121,13 +121,13 @@ services:
       - key: NODE_VERSION
         value: "24"
       - key: WEBAUTHN_ORIGIN
-        value: https://handshake-web.onrender.com
+        value: https://handshake-web-debi.onrender.com
       - key: WEBAUTHN_RP_ID
-        value: handshake-web.onrender.com
+        value: handshake-web-debi.onrender.com
       - key: WEBAUTHN_RP_NAME
         value: Handshake
       - key: WEB_URL
-        value: https://handshake-web.onrender.com
+        value: https://handshake-web-debi.onrender.com
       - key: MERCHANT_URL
         value: https://handshake-merchant.onrender.com
       - key: LLM_BASE_URL

@@ -144,3 +144,8 @@ Review follow-ups (D26):
 Accepted:
 - Known users cost one extra INSERT per login.
 - Anyone who knows a user id can use up that user's login window; ids are random 128-bit.
+
+## D27 — The web origin is https://handshake-web-debi.onrender.com (2026-11-04)
+Context: the bare `handshake-web.onrender.com` belongs to another Render user (it serves an unrelated app). Render gave our `handshake-web` service `handshake-web-debi.onrender.com`; D23 and render.yaml had assumed the bare name.
+Decision: `handshake-web-debi.onrender.com` is the WebAuthn origin and RP ID, and `WEB_URL`, on both the merchant and the consumer. The consumer's values are in render.yaml; the merchant's are set in the Render dashboard (sync: false). D23's host is superseded by this entry.
+Consequence: a passkey is bound to its RP ID, so any passkey created against another host doesn't work here; none existed on Render yet. If the service is ever re-created, check its URL before deploying.
