@@ -16,6 +16,8 @@ export interface AppDeps<Tx> {
   gate?: { ctx: GateContext; adminToken: string; assistant?: AssistantDeps };
   demoMode: boolean;
   demoSecret?: string;
+  /** DEMO_MODE and DATABASE_URL is the demo database (D26): mounts POST /demo/reset. */
+  demoReset?: boolean;
 }
 
 // No global body parser: the webhook route needs the raw bytes.
@@ -39,6 +41,8 @@ export function createApp<Tx>(deps: AppDeps<Tx>): Express {
     app.use(
       dashboardRouter(deps.gate.ctx, {
         adminToken: deps.gate.adminToken,
+        demoMode: deps.demoMode,
+        demoReset: deps.demoMode && Boolean(deps.demoReset),
         ...(deps.gate.assistant ? { assistant: deps.gate.assistant } : {}),
       }),
     );

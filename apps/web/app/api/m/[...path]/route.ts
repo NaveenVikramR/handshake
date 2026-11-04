@@ -20,6 +20,9 @@ const ADMIN: [string, RegExp][] = [
   ["GET", /^dashboard\/(recent|stream)$/],
   ["POST", /^orders\/ord_[A-Za-z0-9_-]{1,64}\/(fulfil|refund)$/],
   ["POST", /^assistant$/],
+  // DEMO_MODE tools (the merchant answers 404/401 when it's off); the demo secret is added here.
+  ["POST", /^demo\/reset$/],
+  ["POST", /^webhooks\/paypal\/simulate$/],
 ];
 
 async function handle(req: Request, ctx: { params: Promise<{ path: string[] }> }): Promise<Response> {
@@ -32,6 +35,7 @@ async function handle(req: Request, ctx: { params: Promise<{ path: string[] }> }
       return Response.json({ error: "UNAUTHENTICATED" }, { status: 401 });
     }
     headers.authorization = `Bearer ${token}`;
+    if (path === "webhooks/paypal/simulate") headers["x-demo-secret"] = env("DEMO_SECRET");
   } else if (!match(PUBLIC)) {
     return Response.json({ error: "NOT_FOUND" }, { status: 404 });
   } else if (path === "paypal/return") {

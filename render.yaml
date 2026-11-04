@@ -29,7 +29,7 @@ services:
     buildCommand: >-
       node scripts/require-env.mjs DATABASE_URL DIRECT_URL PAYPAL_CLIENT_ID PAYPAL_CLIENT_SECRET
       PAYPAL_WEBHOOK_ID MERCHANT_AGENT_ID MERCHANT_AGENT_PRIVATE_KEY MERCHANT_ADMIN_TOKEN WEB_URL
-      WEBAUTHN_ORIGIN WEBAUTHN_RP_ID LLM_API_KEY &&
+      WEBAUTHN_ORIGIN WEBAUTHN_RP_ID LLM_API_KEY DEMO_SECRET &&
       npx -y pnpm@10.34.9 install --frozen-lockfile --filter "@handshake/merchant..." &&
       npx -y pnpm@10.34.9 --filter @handshake/db exec prisma migrate deploy
     startCommand: NODE_ENV=production npx -y pnpm@10.34.9 --filter @handshake/merchant start
@@ -37,11 +37,18 @@ services:
     envVars:
       - key: NODE_VERSION
         value: "24"
-      # Fixed, not secrets: pinned so the dashboard can't point at live PayPal or enable the simulator.
+      # Fixed, not secrets: pinned so the dashboard can't point at live PayPal.
       - key: PAYPAL_BASE_URL
         value: https://api-m.sandbox.paypal.com
+      # D26: the deployed demo (Neon dev until M11) has the dashboard's Reset demo and Simulate webhook.
+      # Simulated events never change an order; reset needs the admin token. Revisit for M11 (main).
       - key: DEMO_MODE
-        value: "false"
+        value: "true"
+      - key: DEMO_SECRET
+        sync: false
+      # The host part of the dev DATABASE_URL: reset is offered only while DATABASE_URL points there.
+      - key: DEMO_DATABASE_HOST
+        sync: false
       - key: DATABASE_URL
         sync: false
       - key: DIRECT_URL
@@ -81,7 +88,7 @@ services:
     plan: free
     region: ohio
     buildCommand: >-
-      node scripts/require-env.mjs CONSUMER_URL MERCHANT_URL MERCHANT_ADMIN_TOKEN &&
+      node scripts/require-env.mjs CONSUMER_URL MERCHANT_URL MERCHANT_ADMIN_TOKEN DEMO_SECRET &&
       npx -y pnpm@10.34.9 install --frozen-lockfile --filter "@handshake/web..." &&
       npx -y pnpm@10.34.9 --filter @handshake/web build
     startCommand: NODE_ENV=production npx -y pnpm@10.34.9 --filter @handshake/web start
@@ -93,8 +100,10 @@ services:
         value: https://handshake-consumer.onrender.com
       - key: MERCHANT_URL
         value: https://handshake-merchant.onrender.com
-      # The same value as on handshake-merchant: the web server adds it to dashboard calls.
+      # The same values as on handshake-merchant: the web server adds them to dashboard calls.
       - key: MERCHANT_ADMIN_TOKEN
+        sync: false
+      - key: DEMO_SECRET
         sync: false
 
   # M8: consumer agent + wallet API, reached only through handshake-web's server routes.

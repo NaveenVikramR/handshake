@@ -113,6 +113,9 @@ export function signEnvelope<P extends { type: string }>(
   privateKey: string,
   kid: string,
 ): SignedEnvelope<P> {
+  // Callers with untyped input (JSON, `as` casts) can't sign a payload without a domain type.
+  const type = (payload as { type?: unknown } | null)?.type;
+  if (typeof type !== "string" || type.length === 0) throw new TypeError("signEnvelope: payload.type must be a non-empty string");
   return { payload, sig: signPayload(payload, privateKey), kid };
 }
 

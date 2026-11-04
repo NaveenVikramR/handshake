@@ -17,6 +17,7 @@ import request from "supertest";
 import { FakeAuthenticator } from "../../../packages/core/test/fake-authenticator.js";
 import { createApp } from "../src/app.js";
 import { orderEventHandler } from "../src/gate/order-events.js";
+import { afterOrderEvent } from "../src/gate/settle.js";
 import type { RiskInspector, RiskVerdict } from "../src/gate/risk.js";
 import { memoryGateStore } from "../src/gate/store.js";
 import type { GateContext } from "../src/gate/verify.js";
@@ -100,11 +101,13 @@ export async function gateFixture(
       store: memoryWebhookStore(),
       webhookId: "WH",
       onOrderEvent: orderEventHandler(gate.store),
+      afterOrderEvent: afterOrderEvent(ctx),
       log: () => {},
     },
     offers: { store: offerStore, self, now: () => clock.t },
     gate: { ctx, adminToken: ADMIN },
     demoMode: true,
+    demoReset: true,
     demoSecret: "demo-secret-0123456789",
   });
 

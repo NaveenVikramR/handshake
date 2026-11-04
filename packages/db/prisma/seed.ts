@@ -3,18 +3,9 @@
 // Agent public keys are derived from the configured private keys, so the registry matches what the
 // services sign with.
 import { publicKeyFromPrivate } from "@handshake/core";
-import { createDb } from "../src/index.js";
+import { DEMO_MERCHANT, DEMO_PRODUCTS, createDb } from "../src/index.js";
 
-const DEMO_MERCHANT = { id: "mer_corner", name: "Corner Grocery" };
-
-const PRODUCTS = [
-  { sku: "RICE-2KG", name: "Basmati rice 2 kg", category: "grocery", priceMinor: 499, stock: 50 },
-  { sku: "ATTA-5KG", name: "Whole wheat atta 5 kg", category: "grocery", priceMinor: 899, stock: 30 },
-  { sku: "DAL-1KG", name: "Toor dal 1 kg", category: "grocery", priceMinor: 349, stock: 40 },
-  { sku: "MILK-1L", name: "Milk 1 L", category: "dairy", priceMinor: 129, stock: 60 },
-  { sku: "DET-1L", name: "Liquid detergent 1 L", category: "household", priceMinor: 650, stock: 25 },
-  { sku: "SOAP-4PK", name: "Bath soap, 4 pack", category: "household", priceMinor: 399, stock: 25 },
-];
+const PRODUCTS = DEMO_PRODUCTS;
 
 function env(name: string): string {
   const v = process.env[name];

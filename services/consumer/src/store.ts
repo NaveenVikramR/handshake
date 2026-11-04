@@ -124,6 +124,13 @@ export interface WalletStore {
   putLoginChallenge(c: LoginChallengeRow): Promise<void>;
   /** Deletes the challenge; returns it only if this call deleted it and it had not expired. */
   takeLoginChallenge(id: string, now: number): Promise<LoginChallengeRow | undefined>;
+  /** Deletes every expired login challenge; returns how many are still live for `userId` (M10 cap). */
+  pruneLoginChallenges(userId: string, now: number): Promise<number>;
+  /**
+   * Deletes expired registration challenges, then users that never got a passkey, have no live
+   * challenge and were created before `before` (abandoned sign-ups, M10).
+   */
+  sweepRegistrations(now: number, before: number): Promise<number>;
   /** Wallet sign count compare-and-set (D16); false if it moved since it was read. */
   advanceWalletSignCount(credentialId: string, expected: number, next: number): Promise<boolean>;
   createSession(s: { tokenHash: string; userId: string; expiresAt: number }): Promise<void>;
@@ -286,6 +293,25 @@ export function prismaWalletStore(db: PrismaClient): WalletStore {
       const { count } = await db.loginChallenge.deleteMany({ where: { id } });
       if (count !== 1 || row.expiresAt.getTime() <= now) return undefined;
       return { id: row.id, userId: row.userId, payload: row.payloadJson, expiresAt: row.expiresAt.getTime() };
+    },
+    async pruneLoginChallenges(userId, now) {
+      await db.loginChallenge.deleteMany({ where: { expiresAt: { lte: new Date(now) } } });
+      return db.loginChallenge.count({ where: { userId } });
+    },
+    async sweepRegistrations(now, before) {
+      await db.registrationChallenge.deleteMany({ where: { expiresAt: { lte: new Date(now) } } });
+      const { count } = await db.user.deleteMany({
+        where: {
+          createdAt: { lt: new Date(before) },
+          passkeys: { none: {} },
+          challenges: { none: {} },
+          approvals: { none: {} },
+          mandates: { none: {} },
+          sessions: { none: {} },
+          logins: { none: {} },
+        },
+      });
+      return count;
     },
     async advanceWalletSignCount(credentialId, expected, next) {
       const { count } = await db.walletCredential.updateMany({
@@ -523,6 +549,22 @@ export function memoryWalletStore(
       const c = logins.get(id);
       logins.delete(id);
       return c && c.expiresAt > now ? c : undefined;
+    },
+    async pruneLoginChallenges(userId, now) {
+      for (const [id, c] of logins) if (c.expiresAt <= now) logins.delete(id);
+      return [...logins.values()].filter((c) => c.userId === userId).length;
+    },
+    async sweepRegistrations(now) {
+      for (const [id, c] of challenges) if (c.expiresAt <= now) challenges.delete(id);
+      let n = 0;
+      for (const id of users.keys()) {
+        const hasPasskey = [...credentials.values()].some((c) => c.userId === id);
+        if (!hasPasskey && !challenges.has(id)) {
+          users.delete(id);
+          n++;
+        }
+      }
+      return n;
     },
     async advanceWalletSignCount(credentialId, expected, next) {
       const c = credentials.get(credentialId);

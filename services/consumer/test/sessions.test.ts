@@ -48,6 +48,35 @@ describe("passkey login", () => {
     expect(verify.body).toEqual({ error: code });
   });
 
+  it("an unknown user gets the same shape of options, with a stable decoy credential; verify fails like an expiry (M10)", async () => {
+    h = await harness();
+    const { userId, auth } = await h.registerUser();
+    const ghost = "usr_AAAAAAAAAAAAAAAAAAAAAA";
+    const real = await request(h.app).post("/passkeys/login/options").send({ userId });
+    const fake1 = await request(h.app).post("/passkeys/login/options").send({ userId: ghost });
+    const fake2 = await request(h.app).post("/passkeys/login/options").send({ userId: ghost });
+    expect(fake1.status).toBe(200);
+    expect(Object.keys(fake1.body).sort()).toEqual(Object.keys(real.body).sort());
+    expect(Object.keys(fake1.body.options).sort()).toEqual(Object.keys(real.body.options).sort());
+    expect(fake1.body.options.allowCredentials).toHaveLength(1);
+    expect(fake2.body.options.allowCredentials).toEqual(fake1.body.options.allowCredentials);
+    // Nothing was stored for the ghost: verify answers as for an expired login.
+    const v = await request(h.app)
+      .post("/passkeys/login/verify")
+      .send({ loginId: fake1.body.loginId, response: auth.assertJSON(fake1.body.options.challenge) });
+    expect(v.body).toEqual({ error: "APPROVAL_EXPIRED" });
+  });
+
+  it("login options are limited per user id, the same for known and unknown users (M10)", async () => {
+    h = await harness();
+    const { userId } = await h.registerUser();
+    for (const id of [userId, "usr_BBBBBBBBBBBBBBBBBBBBBB"]) {
+      const codes = [];
+      for (let i = 0; i < 6; i++) codes.push((await request(h.app).post("/passkeys/login/options").send({ userId: id })).status);
+      expect(codes).toEqual([200, 200, 200, 200, 200, 429]);
+    }
+  });
+
   it("a login challenge works once", async () => {
     h = await harness();
     const { userId, auth } = await h.registerUser();

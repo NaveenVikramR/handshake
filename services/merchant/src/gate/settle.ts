@@ -336,9 +336,67 @@ export async function refundOrder(ctx: GateContext, orderId: string): Promise<Re
 }
 
 /** POST /payments/:requestId (GET): the stored outcome. */
-export async function paymentStatus(ctx: GateContext, requestId: string): Promise<PaymentResponse> {
+/** GET /payments/:requestId: the order's status only. Receipts go to the signing agent alone (D25). */
+export async function paymentStatus(
+  ctx: GateContext,
+  requestId: string,
+): Promise<{ httpStatus: number; body: { status: string } | { error: string } }> {
   const o = (await ctx.store.getPaymentRequest(requestId))?.order;
-  return o ? current(ctx, o) : { httpStatus: 404, body: { error: "UNKNOWN_REQUEST" } };
+  return o ? { httpStatus: 200, body: { status: o.status } } : { httpStatus: 404, body: { error: "UNKNOWN_REQUEST" } };
+}
+
+/**
+ * Webhook follow-up (M10): a declined capture fails the order, but PayPal may still hold the
+ * authorization. Void it with the order's void request id, so a retry is the same void.
+ */
+export function afterOrderEvent(ctx: GateContext) {
+  return async (
+    ev: { to: string; ref: { kind: string; id: string } },
+    raw: { id: string; event_type: string },
+  ): Promise<void> => {
+    if (ev.to !== "failed" || ev.ref.kind !== "capture") return;
+    const o = await ctx.store.findOrder({ captureId: ev.ref.id });
+    if (!o || o.status !== "failed" || !o.authorizationId) return;
+    try {
+      await ctx.paypal.voidAuthorization(o.authorizationId, paypalRequestId(o, "void"));
+      log(ctx, "authorization voided after declined capture", { orderId: o.id });
+    } catch (e) {
+      // A redelivery is a duplicate, so nothing retries this: leave it for a human.
+      await ctx.store.addReconciliation({
+        eventId: raw.id,
+        eventType: raw.event_type,
+        orderId: o.id,
+        from: o.status,
+        note: "void after declined capture failed; authorization may still be held",
+      });
+      throw e;
+    }
+  };
+}
+
+/**
+ * DEMO_MODE reset (M10): void every held authorization at PayPal (sandbox), then clear the payment
+ * data and restock. A void that fails is logged and the reset goes on: sandbox authorizations expire.
+ */
+export async function resetDemo(
+  ctx: GateContext,
+  stock: { sku: string; stock: number }[],
+): Promise<{ orders: number; voided: number }> {
+  let voided = 0;
+  const stuck: string[] = [];
+  for (const o of await ctx.store.heldOrders()) {
+    try {
+      await voidOrder(ctx, o, "demo reset");
+      voided++;
+    } catch {
+      stuck.push(o.id);
+      log(ctx, "demo reset: void failed", { orderId: o.id });
+    }
+  }
+  // The store aborts if any other order became authorized meanwhile (its hold would be lost).
+  const { orders } = await ctx.store.resetDemo(stock, stuck);
+  log(ctx, "demo reset", { orders, voided });
+  return { orders, voided };
 }
 
 async function voidOrder(ctx: GateContext, o: OrderRow, why: string): Promise<void> {

@@ -11,7 +11,8 @@ import {
 import { createApp } from "./app.js";
 import { orderEventHandler } from "./gate/order-events.js";
 import { openAIRiskModel, riskInspector } from "./gate/risk.js";
-import { startOrderExpiry } from "./gate/settle.js";
+import { demoDatabaseMatches } from "./demo.js";
+import { afterOrderEvent, startOrderExpiry } from "./gate/settle.js";
 import { prismaGateStore } from "./gate/store.js";
 import type { GateContext } from "./gate/verify.js";
 import { startHoldExpiry } from "./offers/expiry.js";
@@ -23,10 +24,9 @@ import { prismaWebhookStore } from "./webhooks/store.js";
 const rootEnv = fileURLToPath(new URL("../../../.env", import.meta.url));
 if (existsSync(rootEnv)) process.loadEnvFile(rootEnv);
 
+// DEMO_MODE runs on the deployed demo too (D26): the simulator needs DEMO_SECRET and never changes an
+// order, and the reset needs the admin token. The webhook router refuses to start without the secret.
 const demoMode = process.env.DEMO_MODE === "true";
-if (demoMode && process.env.NODE_ENV === "production") {
-  throw new Error("DEMO_MODE must not be enabled in production");
-}
 const webhookId = process.env.PAYPAL_WEBHOOK_ID ?? "";
 if (!webhookId) throw new Error("PAYPAL_WEBHOOK_ID is not set");
 
@@ -64,7 +64,11 @@ const gate: GateContext = {
   self,
   paypal,
   risk: riskInspector(
-    openAIRiskModel({ baseURL: required("LLM_BASE_URL"), apiKey: required("LLM_API_KEY"), model: required("LLM_MODEL") }),
+    openAIRiskModel({
+      baseURL: required("LLM_BASE_URL"),
+      apiKey: required("LLM_API_KEY"),
+      model: required("LLM_MODEL"),
+    }),
   ),
   webauthn: { origin: required("WEBAUTHN_ORIGIN"), rpId: required("WEBAUTHN_RP_ID") },
   webUrl: required("WEB_URL"),
@@ -73,20 +77,31 @@ const gate: GateContext = {
 startOrderExpiry(gate);
 
 const demoSecret = process.env.DEMO_SECRET;
+const demoReset = demoMode && demoDatabaseMatches(process.env.DATABASE_URL, process.env.DEMO_DATABASE_HOST);
 const app = createApp({
-  webhooks: { paypal, store: prismaWebhookStore(db), webhookId, onOrderEvent: orderEventHandler(gateStore) },
+  webhooks: {
+    paypal,
+    store: prismaWebhookStore(db),
+    webhookId,
+    onOrderEvent: orderEventHandler(gateStore),
+    afterOrderEvent: afterOrderEvent(gate),
+  },
   offers: { store: offerStore, self, now: Date.now },
   gate: {
     ctx: gate,
     adminToken: required("MERCHANT_ADMIN_TOKEN"),
     assistant: {
       store: gateStore,
-      model: openAIAssistantModel({ baseURL: required("LLM_BASE_URL"), apiKey: required("LLM_API_KEY"), model: required("LLM_MODEL") }),
+      model: openAIAssistantModel({
+        baseURL: required("LLM_BASE_URL"),
+        apiKey: required("LLM_API_KEY"),
+        model: required("LLM_MODEL"),
+      }),
       // Read-only actions, sandbox only (rule 1); refunds go through /orders/:id/refund after a confirm.
       paypal: readOnlyToolkit(
         new PayPalAgentToolkit({
-        clientId: required("PAYPAL_CLIENT_ID"),
-        clientSecret: required("PAYPAL_CLIENT_SECRET"),
+          clientId: required("PAYPAL_CLIENT_ID"),
+          clientSecret: required("PAYPAL_CLIENT_SECRET"),
           configuration: { actions: READ_ONLY_PAYPAL_ACTIONS as never, context: { sandbox: true } },
         }),
       ),
@@ -94,6 +109,9 @@ const app = createApp({
   },
   demoMode,
   ...(demoSecret === undefined ? {} : { demoSecret }),
+  demoReset,
 });
 const port = Number(process.env.PORT ?? 4001);
-app.listen(port, () => console.log(`merchant ${self.merchantId} listening on :${port}${demoMode ? " (DEMO_MODE)" : ""}`));
+app.listen(port, () =>
+  console.log(`merchant ${self.merchantId} listening on :${port}${demoMode ? " (DEMO_MODE)" : ""}`),
+);

@@ -132,6 +132,8 @@ export async function authorize(
       cart,
     };
   } else {
+    // The phone shows the address the human approves; a hash alone (from a mandate) can't be shown (M10).
+    if (!input.shipTo) throw new HandshakeError("SCHEMA_INVALID", "ship-to address required for approval");
     input.emit({ type: "path", path: "step_up", reasons: decision.reasons });
     const { id } = await createApproval(ctx, cart, input.shipTo);
     input.emit({

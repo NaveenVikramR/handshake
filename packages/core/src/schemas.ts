@@ -59,6 +59,9 @@ const totalMatchesItems = (p: { items: Item[]; totalMinor: number }) => {
   return Number.isSafeInteger(sum) && sum === p.totalMinor;
 };
 
+/** Longest an offer may hold stock and its price: 15 minutes from `iat`. */
+export const MAX_OFFER_HOLD_S = 900;
+
 export const Offer = z
   .strictObject({
     ...header,
@@ -73,6 +76,11 @@ export const Offer = z
     holdUntil: unixSeconds,
   })
   .refine(expAfterIat, { message: "exp must be after iat", path: ["exp"] })
+  // A signed offer can't hold stock (or a price) for longer than MAX_OFFER_HOLD_S.
+  .refine((o) => o.holdUntil > o.iat && o.holdUntil - o.iat <= MAX_OFFER_HOLD_S, {
+    message: "holdUntil must be within 15 minutes of iat",
+    path: ["holdUntil"],
+  })
   .refine(totalMatchesItems, { message: "totalMinor != sum of items", path: ["totalMinor"] });
 export type Offer = z.infer<typeof Offer>;
 

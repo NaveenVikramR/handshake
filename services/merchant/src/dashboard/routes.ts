@@ -6,7 +6,8 @@ import express, { Router } from "express";
 import { z } from "zod";
 import { askAssistant, type AssistantDeps } from "../assistant/assistant.js";
 import { requireAdmin } from "../gate/routes.js";
-import { OrderStateError, completeByPayPalOrder, refundOrder } from "../gate/settle.js";
+import { DEMO_PRODUCTS } from "@handshake/db";
+import { OrderStateError, completeByPayPalOrder, refundOrder, resetDemo } from "../gate/settle.js";
 import type { RecentRequest } from "../gate/store.js";
 import type { GateContext } from "../gate/verify.js";
 import { PayPalApiError } from "../paypal/client.js";
@@ -48,7 +49,10 @@ export function feedRow(r: RecentRequest) {
   };
 }
 
-export function dashboardRouter(ctx: GateContext, opts: { adminToken: string; assistant?: AssistantDeps }): Router {
+export function dashboardRouter(
+  ctx: GateContext,
+  opts: { adminToken: string; assistant?: AssistantDeps; demoMode?: boolean; demoReset?: boolean },
+): Router {
   const router = Router();
   const admin = requireAdmin(opts.adminToken);
   const expected = Buffer.from(`Bearer ${opts.adminToken}`);
@@ -59,8 +63,19 @@ export function dashboardRouter(ctx: GateContext, opts: { adminToken: string; as
   const returns = rateLimiter(30, 60_000);
 
   router.get("/dashboard/recent", admin, async (_req, res) => {
-    res.json({ requests: (await ctx.store.listRecent(50)).map(feedRow) });
+    res.json({
+      requests: (await ctx.store.listRecent(50)).map(feedRow),
+      demoMode: Boolean(opts.demoMode),
+      demoReset: Boolean(opts.demoMode && opts.demoReset),
+    });
   });
+
+  // DEMO_MODE on the demo database only (D26): back to a clean shop. Not mounted otherwise (404).
+  if (opts.demoMode && opts.demoReset) {
+    router.post("/demo/reset", admin, async (_req, res) => {
+      res.json(await resetDemo(ctx, DEMO_PRODUCTS));
+    });
+  }
 
   // SSE: a fresh snapshot whenever anything changed (polling the store keeps it right across instances).
   router.get("/dashboard/stream", admin, async (req, res) => {

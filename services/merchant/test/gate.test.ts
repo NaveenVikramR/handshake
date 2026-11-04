@@ -421,7 +421,8 @@ describe("settlement", () => {
       .filter((c) => c.requestId?.startsWith(order.requestId))
       .map((c) => `${c.op}:${c.requestId!.slice(order.requestId.length)}`);
     expect(ops).toEqual(["create:", "capture:-capture", "track:-track"]);
-    expect((await request(f.app).get(`/payments/${order.requestId}`)).body.status).toBe("captured");
+    // Status only by id: no receipt, PayPal ids or tracking (D25).
+    expect((await request(f.app).get(`/payments/${order.requestId}`)).body).toEqual({ status: "captured" });
   });
 
   it("not fulfilled → void; mandate spend released", async () => {
@@ -531,6 +532,62 @@ describe("webhooks move orders through the state machine only", () => {
     expect(f.gate.reconciliations.map((r) => r.note)).toEqual(
       expect.arrayContaining(["capture reversed (dispute or chargeback)", "state conflict"]),
     );
+  });
+
+  it("a declined capture fails the order and voids the authorization PayPal still holds (M10)", async () => {
+    const f = await gateFixture();
+    await payFirstTime(f, f.passkeyRequest(await f.offer()));
+    const o = [...f.gate.orders.values()][0]!;
+    expect(o.status).toBe("authorized");
+    await genuine(f, {
+      id: "WH-DECL-1",
+      event_type: "PAYMENT.CAPTURE.DECLINED",
+      resource: { id: "CAPDECL1", status: "DECLINED", supplementary_data: { related_ids: { authorization_id: o.authorizationId } } },
+    });
+    expect(f.gate.orders.get(o.id)?.status).toBe("failed");
+    const voids = f.paypal.calls.filter((c) => c.op === "void");
+    expect(voids).toEqual([expect.objectContaining({ args: o.authorizationId, requestId: `${o.requestId}-void` })]);
+    // A redelivery is a duplicate: no second void.
+    await genuine(f, {
+      id: "WH-DECL-1",
+      event_type: "PAYMENT.CAPTURE.DECLINED",
+      resource: { id: "CAPDECL1", status: "DECLINED" },
+    });
+    expect(f.paypal.calls.filter((c) => c.op === "void")).toHaveLength(1);
+  });
+
+  it("a void that fails after a declined capture is left for a human (reconciliation row)", async () => {
+    const f = await gateFixture();
+    await payFirstTime(f, f.passkeyRequest(await f.offer()));
+    const o = [...f.gate.orders.values()][0]!;
+    f.paypal.client.voidAuthorization = async () => {
+      throw new Error("PayPal down");
+    };
+    const res = await genuine(f, {
+      id: "WH-DECL-3",
+      event_type: "PAYMENT.CAPTURE.DECLINED",
+      resource: { id: "CAPDECL3", supplementary_data: { related_ids: { authorization_id: o.authorizationId } } },
+    });
+    // The event itself was processed; only the follow-up failed.
+    expect(res.status).toBe(200);
+    expect(f.gate.orders.get(o.id)?.status).toBe("failed");
+    expect(f.gate.reconciliations.at(-1)).toMatchObject({ orderId: o.id, eventId: "WH-DECL-3" });
+    expect(f.gate.reconciliations.at(-1)?.note).toMatch(/void after declined capture failed/);
+  });
+
+  it("a simulated declined capture voids nothing", async () => {
+    const f = await gateFixture();
+    await payFirstTime(f, f.passkeyRequest(await f.offer()));
+    const o = [...f.gate.orders.values()][0]!;
+    await request(f.app)
+      .post("/webhooks/paypal/simulate")
+      .set("x-demo-secret", SECRET)
+      .send({
+        event_type: "PAYMENT.CAPTURE.DECLINED",
+        resource: { id: "CAPDECL2", supplementary_data: { related_ids: { authorization_id: o.authorizationId } } },
+      });
+    expect(f.gate.orders.get(o.id)?.status).toBe("authorized");
+    expect(f.paypal.calls.some((c) => c.op === "void")).toBe(false);
   });
 
   it("an event for an order we don't have is recorded for a human", async () => {

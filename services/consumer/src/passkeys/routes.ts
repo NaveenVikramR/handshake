@@ -32,6 +32,10 @@ export function passkeyRouter(ctx: AppContext): Router {
     const body = OptionsBody.safeParse(req.body);
     if (!body.success) return void res.status(400).json({ error: "SCHEMA_INVALID" });
 
+    // Each call creates a user row; abandoned ones (no passkey, challenge gone) are swept here (M10).
+    // The web edge rate-limits this route per client.
+    const now = ctx.now();
+    await ctx.store.sweepRegistrations(now, now - REGISTRATION_TTL_MS);
     const userId = `usr_${b64urlEncode(randomBytes(16))}`;
     await ctx.store.createUser({ id: userId, displayName: body.data.displayName });
     const options = await generateRegistrationOptions({

@@ -1,4 +1,4 @@
-import { hash } from "../../packages/core/src/index.js";
+import { hash, shipToHash } from "../../packages/core/src/index.js";
 import { runChat } from "../../services/consumer/src/agent/loop.js";
 import { activateMandate, createMandate } from "../../services/consumer/src/mandates/service.js";
 import { harness, lastResult, scriptedPlanner, shipTo } from "../../services/consumer/test/agent-harness.js";
@@ -39,7 +39,7 @@ export default defineAttack({
       await runChat(
         c.ctx,
         { ...c.agent, planner },
-        { userId, message: "2 rice please" },
+        { userId, message: "2 rice please", shipToHash: shipToHash(shipTo), shipTo },
         (e) => {
           if (e.type === "approval_required") {
             stepUp = true;

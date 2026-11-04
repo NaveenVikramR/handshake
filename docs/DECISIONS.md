@@ -102,3 +102,45 @@ Attack cases `dup-request-other-agent`, `dup-request-forged-sig`, `complete-leak
 Known remaining issues:
 - Request ids are a client-chosen `req_…` of 1–64 characters, so a seen id is distinguishable from an unseen one (`AGENT_UNTRUSTED` vs. later steps). That reveals that a payment exists, not its receipt. Our consumer agent uses random 128-bit ids.
 - `GET /payments/:requestId` still answers by id alone. Nothing calls it, so M10 either makes it status-only or removes it.
+
+## D26 — Demo tools on the deployed demo; M10 hardening (2026-11-04)
+**Demo tools.** The demo tools run on the deployed demo too (user's choice). That deployment uses the Neon dev branch until M11.
+- `DEMO_MODE=true` and `DEMO_SECRET` are set in render.yaml for the merchant and the web service. The merchant no longer refuses DEMO_MODE when `NODE_ENV=production`. The guard predates the simulator's protections: simulated events are recorded but never change an order, the simulator needs `x-demo-secret`, and the reset needs the admin token.
+- The dashboard shows two buttons, and only when the merchant reports `demoMode`:
+  - **Reset demo** (`POST /demo/reset`, admin, mounted only in DEMO_MODE) voids held authorizations at PayPal first. It then deletes:
+    - orders, payment requests and decisions;
+    - offers and stock holds;
+    - nonces, mandate spend and approvals;
+    - PayPal events and reconciliations.
+
+    It restocks to the shared `DEMO_PRODUCTS` (`@handshake/db`, also used by `db:seed`). Users, passkeys, saved wallets, mandates and the registry stay, so the next take needs no PayPal redirect and no new mandate.
+  - **Simulate webhook** replays the capture event for an order with a fixed event id. The first press is recorded; the second shows the duplicate being ignored.
+- The web server adds `DEMO_SECRET`; the browser never sees it.
+- `pnpm demo:seed` runs `db:seed`, then the same reset from the CLI. It refuses unless `DEMO_MODE=true`.
+- **For M11 (main):** decide whether `main` keeps DEMO_MODE.
+
+**Other M10 changes:**
+- A declined-capture webhook voids the authorization after commit, through the new `afterOrderEvent` hook (never inside the dedupe transaction; genuine, new events only).
+- The consumer pins each merchant URL to its first proven `merchantId`. If two URLs claim one merchant, neither is used.
+- A step-up needs the full `shipTo`, because the phone must show it, not just a hash.
+- Login options:
+  - unknown users get decoy options (a per-process HMAC credential id; nothing stored), so verify fails like an expired login;
+  - a per-user limit (5 per 2 minutes) applies to known and unknown ids alike;
+  - live challenges are capped at 5, and expired ones are swept. The `/wallet/paypal` link views share that cap.
+- Register options sweep abandoned sign-ups (no passkey, challenge gone, older than 5 minutes) instead of creating the user only on verify, which would have needed a migration.
+- The web edge rate-limits passkey options per client (20 per 15 minutes); it's the only hop that sees the client.
+- An approval that expires mid-verify reports APPROVAL_EXPIRED.
+- `GET /payments/:requestId` returns `{status}` only.
+- Core:
+  - offers can hold for at most 15 minutes from `iat`;
+  - `signEnvelope` refuses a payload without a string `type` at runtime.
+
+Review follow-ups (D26):
+- **Reset guard:** reset also requires `DEMO_DATABASE_HOST` to equal the hostname in `DATABASE_URL`, including any `-pooler` suffix, in both the endpoint and the CLI. Moving to Neon `main` changes the host, so reset turns itself off even if DEMO_MODE stays on.
+- **Reset transaction:** it is serializable and aborts if an order it didn't void is authorized.
+- **Login:** every id gets the same reads, and the limit is a sliding window per id equal to the challenge lifetime, so no user has more than 5 live challenges and known and unknown ids behave alike. The decoy key comes from the consumer agent key with a domain prefix, so it survives restarts.
+- **Declined capture:** a void that fails after a declined capture leaves a reconciliation row.
+
+Accepted:
+- Known users cost one extra INSERT per login.
+- Anyone who knows a user id can use up that user's login window; ids are random 128-bit.

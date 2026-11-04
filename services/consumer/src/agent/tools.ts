@@ -67,6 +67,8 @@ export interface ChatSession {
   shipToHash: string | undefined;
   shipTo?: ShipTo;
   merchants: Map<string, { client: MerchantClient; name: string }>;
+  /** Each merchant URL's merchantId, fixed by the first card the registry confirmed for it. */
+  pins: Map<string, string>;
   offers: Map<string, { offer: SignedOffer; merchantId: string }>;
   paid: Set<string>;
   /** Mandate-path checkouts so far; after one, further checkouts in this chat need the phone. */
@@ -181,7 +183,7 @@ async function run(ctx: AppContext, agent: AgentConfig, s: ChatSession, name: To
   switch (name) {
     case "discover_merchants": {
       Args.discover_merchants.parse(args);
-      const found = [];
+      const seen = new Map<string, { url: string; client: MerchantClient; name: string }[]>();
       for (const url of agent.merchantUrls) {
         const client = merchantClient(url, agent.fetch);
         try {
@@ -189,11 +191,25 @@ async function run(ctx: AppContext, agent: AgentConfig, s: ChatSession, name: To
           const merchant = await trustedMerchant(ctx.store, card.merchantAgentId);
           // The card only points at a registry entry; if it disagrees with the registry, skip it.
           if (merchant.id !== card.merchantId) continue;
-          s.merchants.set(merchant.id, { client, name: merchant.name });
-          found.push({ merchantId: merchant.id, name: untrusted(merchant.name) });
+          // A URL keeps the merchant it first proved: a card that later names another is skipped.
+          const pinned = s.pins.get(url);
+          if (pinned !== undefined && pinned !== merchant.id) continue;
+          seen.set(merchant.id, [...(seen.get(merchant.id) ?? []), { url, client, name: merchant.name }]);
         } catch (e) {
           if (!isHandshakeError(e)) throw e;
         }
+      }
+      const found = [];
+      for (const [merchantId, at] of seen) {
+        // Two URLs claiming one merchant: we can't tell which one is real, so neither is used.
+        if (at.length !== 1) {
+          s.merchants.delete(merchantId);
+          continue;
+        }
+        const [{ url, client, name }] = at as [(typeof at)[number]];
+        s.pins.set(url, merchantId);
+        s.merchants.set(merchantId, { client, name });
+        found.push({ merchantId, name: untrusted(name) });
       }
       return { merchants: found };
     }

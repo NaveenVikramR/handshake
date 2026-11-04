@@ -1,12 +1,23 @@
 import { describe, expect, it } from "vitest";
 import { ERROR_CODES } from "@handshake/core";
 import { adminSessionValid, adminSessionValue } from "../lib/server";
-import { FALLBACK_REASON, REASONS, approveLabel, countdown, money, orderPill, reasonFor } from "../lib/ui";
+import {
+  DASHBOARD_CODES,
+  FALLBACK_REASON,
+  REASONS,
+  approveLabel,
+  countdown,
+  money,
+  orderPill,
+  reasonFor,
+} from "../lib/ui";
 
 describe("human reasons (docs/DESIGN.md)", () => {
   it("every gate code a user can hit has a plain line; anything else falls back", () => {
     const shown = ERROR_CODES.filter((c) => c !== "DUPLICATE_REQUEST");
-    for (const c of shown) expect(REASONS[c], c).toBeTruthy();
+    for (const c of [...shown, ...DASHBOARD_CODES]) expect(REASONS[c], c).toBeTruthy();
+    // No line is ever just the code.
+    for (const [c, line] of Object.entries(REASONS)) expect(line).not.toContain(c);
     expect(reasonFor("SOMETHING_NEW")).toBe(FALLBACK_REASON);
     expect(reasonFor(undefined)).toBe(FALLBACK_REASON);
     expect(reasonFor("CART_HASH_MISMATCH")).toBe("Cart changed after you approved it");

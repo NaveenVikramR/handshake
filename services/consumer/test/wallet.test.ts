@@ -164,4 +164,13 @@ describe("wallet API (M8)", () => {
     });
     expect(again.body).toEqual({ error: "APPROVAL_EXPIRED" });
   });
+
+  it("viewing the PayPal confirmation stores one challenge per view, capped per user (M10)", async () => {
+    h = await harness();
+    const u = await signedIn(h);
+    h.gate.vaults.set(u.userId, { vaultId: "VAULT-1", payerId: "P1", payerEmail: "p1@example.com", status: "pending" });
+    const codes = [];
+    for (let i = 0; i < 6; i++) codes.push((await u.as(request(h.app).get("/wallet/paypal"))).status);
+    expect(codes).toEqual([200, 200, 200, 200, 200, 429]);
+  });
 });

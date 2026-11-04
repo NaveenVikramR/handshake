@@ -16,6 +16,11 @@ export interface WebhookDeps<Tx = unknown> {
    * verification, so M7 must not fulfil or release funds on them.
    */
   onOrderEvent?: (event: MappedOrderEvent, raw: WebhookEvent, tx: Tx, meta: { simulated: boolean }) => Promise<void>;
+  /**
+   * After a new, genuine event is committed: follow-ups that call PayPal (never inside the dedupe
+   * transaction). Errors are logged, never turned into a redelivery.
+   */
+  afterOrderEvent?: (event: MappedOrderEvent, raw: WebhookEvent) => Promise<void>;
   log?: Log;
 }
 
@@ -56,7 +61,7 @@ export async function handlePayPalWebhook<Tx>(
 
 /** Shared by the real endpoint (after verification) and the DEMO_MODE simulator. */
 export async function acceptVerified<Tx>(
-  deps: Pick<WebhookDeps<Tx>, "store" | "onOrderEvent">,
+  deps: Pick<WebhookDeps<Tx>, "store" | "onOrderEvent" | "afterOrderEvent">,
   rawBody: string,
   meta: { simulated: boolean },
   log: Log = defaultLog,
@@ -105,5 +110,12 @@ export async function acceptVerified<Tx>(
     return { httpStatus: 200, outcome: "duplicate" };
   }
   log(mapped ? "webhook processed" : "webhook ignored", { ...fields, ...(mapped ? { to: mapped.to } : {}) });
+  if (mapped && deps.afterOrderEvent && !meta.simulated) {
+    try {
+      await deps.afterOrderEvent(mapped, event);
+    } catch (e) {
+      log("webhook follow-up failed", { ...fields, error: e instanceof Error ? e.name : "unknown" });
+    }
+  }
   return { httpStatus: 200, outcome: mapped ? "processed" : "ignored" };
 }

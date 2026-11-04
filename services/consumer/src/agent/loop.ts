@@ -54,6 +54,7 @@ export async function runChat(
     shipToHash: input.shipToHash,
     ...(input.shipTo ? { shipTo: input.shipTo } : {}),
     merchants: new Map(),
+    pins: new Map(),
     offers: new Map(),
     paid: new Set(),
     mandateCheckouts: 0,

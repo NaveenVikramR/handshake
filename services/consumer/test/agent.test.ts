@@ -51,7 +51,7 @@ async function chat(hh: Harness, userId: string, steps: Parameters<typeof script
   await runChat(
     hh.ctx,
     { ...hh.agent, planner },
-    { userId, message: "2 rice please", ...extra },
+    { userId, message: "2 rice please", shipToHash: shipToHash(shipTo), shipTo, ...extra },
     (e) => events.push(e),
     {
       log: () => {},
@@ -91,7 +91,7 @@ describe("agent loop: mandate path", () => {
     const done = runChat(
       h.ctx,
       { ...h.agent, planner },
-      { userId, message: "detergent" },
+      { userId, message: "detergent", shipToHash: shipToHash(shipTo), shipTo },
       (e) => {
         events.push(e);
         if (e.type === "approval_required") void approveOnPhone(h!, e.approvalId, auth);
@@ -117,7 +117,7 @@ describe("agent loop: mandate path", () => {
     await runChat(
       h.ctx,
       { ...h.agent, planner: scriptedPlanner(buyScript([{ sku: "RICE-2KG", qty: 2 }])) },
-      { userId, message: "rice" },
+      { userId, message: "rice", shipToHash: shipToHash(shipTo), shipTo },
       (e) => {
         events.push(e);
         if (e.type === "approval_required") void approveOnPhone(h!, e.approvalId, auth);
@@ -147,7 +147,7 @@ describe("agent loop: step-up path", () => {
     await runChat(
       h.ctx,
       { ...h.agent, planner: scriptedPlanner(buyScript([{ sku: "RICE-2KG", qty: 1 }])) },
-      { userId, message: "rice", shipToHash: shipToHash(shipTo) },
+      { userId, message: "rice", shipToHash: shipToHash(shipTo), shipTo },
       (e) => {
         events.push(e);
         if (e.type === "approval_required") void approveOnPhone(h!, e.approvalId, auth);
@@ -171,7 +171,7 @@ describe("agent loop: step-up path", () => {
     await runChat(
       h.ctx,
       { ...h.agent, planner: scriptedPlanner(buyScript([{ sku: "RICE-2KG", qty: 1 }])) },
-      { userId, message: "rice", shipToHash: shipToHash(shipTo) },
+      { userId, message: "rice", shipToHash: shipToHash(shipTo), shipTo },
       (e) => {
         events.push(e);
         // The approval window passes without the human approving.
@@ -186,9 +186,43 @@ describe("agent loop: step-up path", () => {
   it("no ship-to and no mandate → SCHEMA_INVALID, no approval created", async () => {
     h = await harness();
     const { userId } = await h.registerUser();
-    const { events } = await chat(h, userId, buyScript([{ sku: "RICE-2KG", qty: 1 }]));
+    const { events } = await chat(h, userId, buyScript([{ sku: "RICE-2KG", qty: 1 }]), {
+      shipToHash: undefined,
+      shipTo: undefined,
+    });
     expect(events).toContainEqual({ type: "tool_result", name: "checkout", ok: false, error: "SCHEMA_INVALID" });
     expect(events.some((e) => e.type === "approval_required")).toBe(false);
+  });
+
+  it("step-up with only a mandate's address hash → SCHEMA_INVALID: the phone must show the address (M10)", async () => {
+    h = await harness();
+    const { userId } = await withMandate(h);
+    // Detergent is outside the grocery mandate, so this goes to the phone.
+    const { events } = await chat(h, userId, buyScript([{ sku: "DET-1L", qty: 1 }]), {
+      shipToHash: undefined,
+      shipTo: undefined,
+    });
+    expect(events).toContainEqual({ type: "tool_result", name: "checkout", ok: false, error: "SCHEMA_INVALID" });
+    expect(events.some((e) => e.type === "approval_required")).toBe(false);
+  });
+});
+
+describe("merchant discovery pins each URL to one merchant (M10)", () => {
+  it("two URLs claiming the same merchant: neither is offered to the model", async () => {
+    h = await harness();
+    const { userId } = await withMandate(h);
+    // Same registry merchant behind two configured URLs (e.g. a look-alike mirror).
+    h.agent.merchantUrls = [h.merchantUrl, `${h.merchantUrl}/`];
+    const { planner } = await chat(h, userId, [() => ({ calls: [["discover_merchants", {}]] }), () => ({ content: "ok" })]);
+    expect(lastResult(planner.seen[1]!)).toEqual({ merchants: [] });
+    expect(h.paid).toHaveLength(0);
+  });
+
+  it("one URL per merchant is found as before", async () => {
+    h = await harness();
+    const { userId } = await withMandate(h);
+    const { planner } = await chat(h, userId, [() => ({ calls: [["discover_merchants", {}]] }), () => ({ content: "ok" })]);
+    expect(lastResult(planner.seen[1]!)).toMatchObject({ merchants: [{ merchantId: "mer_corner" }] });
   });
 });
 
@@ -294,7 +328,7 @@ describe("review fixes", () => {
       (m: PlannerMessage[]) => ({ calls: [["checkout", { offerId: lastResult(m).offerId as string }]] as [string, object][] }),
     ];
     const events: AgentEvent[] = [];
-    await runChat(h.ctx, { ...h.agent, planner: scriptedPlanner([...steps, ...again]) }, { userId, message: "rice" }, (e) => {
+    await runChat(h.ctx, { ...h.agent, planner: scriptedPlanner([...steps, ...again]) }, { userId, message: "rice", shipToHash: shipToHash(shipTo), shipTo }, (e) => {
       events.push(e);
       if (e.type === "approval_required") void approveOnPhone(h!, e.approvalId, auth);
     }, { log: () => {} });

@@ -23,7 +23,22 @@ export const REASONS: Record<string, string> = {
   OUT_OF_STOCK: "Item is out of stock",
   RATE_LIMITED: "Too many attempts, try again shortly",
   SCHEMA_INVALID: "Request was malformed",
+  // Dashboard actions (fulfil, refund, assistant, sign-in), not gate codes.
+  INVALID_ORDER_STATE: "This order can't do that in its current state",
+  ORDER_NOT_REFUNDABLE: "This order can't be refunded",
+  ASSISTANT_UNAVAILABLE: "The assistant is unavailable right now",
+  UNAUTHENTICATED: "Signed out — sign in again",
+  UNKNOWN_REQUEST: "Payment not found",
 };
+
+/** Codes the dashboard's own actions return; each has a line above. */
+export const DASHBOARD_CODES = [
+  "INVALID_ORDER_STATE",
+  "ORDER_NOT_REFUNDABLE",
+  "ASSISTANT_UNAVAILABLE",
+  "UNAUTHENTICATED",
+  "UNKNOWN_REQUEST",
+] as const;
 export const FALLBACK_REASON = "Payment couldn't be completed";
 export const WAITING_FOR_PAYPAL = "Waiting for PayPal approval";
 

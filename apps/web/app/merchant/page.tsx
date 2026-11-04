@@ -92,11 +92,16 @@ export default function MerchantPage() {
   const [proposals, setProposals] = useState<Proposal[]>([]);
   const [busy, setBusy] = useState(false);
   const [note, setNote] = useState<string | null>(null);
+  const [demo, setDemo] = useState(false);
+  const [demoReset, setDemoReset] = useState(false);
+  const [demoNote, setDemoNote] = useState<string | null>(null);
 
   const load = useCallback(async () => {
     try {
-      const r = await merchant<{ requests: Row[] }>("dashboard/recent");
+      const r = await merchant<{ requests: Row[]; demoMode?: boolean; demoReset?: boolean }>("dashboard/recent");
       setRows(r.requests);
+      setDemo(Boolean(r.demoMode));
+      setDemoReset(Boolean(r.demoReset));
       setAuthed(true);
     } catch (e) {
       setAuthed(e instanceof ApiError && e.status === 401 ? false : true);
@@ -136,6 +141,41 @@ export default function MerchantPage() {
     }
   }
 
+  /** DEMO_MODE: back to a clean shop (held authorizations are voided at PayPal first). */
+  async function resetDemo() {
+    if (!window.confirm("Reset the demo? This voids held payments and clears every order.")) return;
+    setDemoNote(null);
+    try {
+      const r = await merchant<{ orders: number; voided: number }>("demo/reset", {});
+      setDemoNote(`Demo reset: ${r.orders} orders cleared, ${r.voided} held payments voided`);
+      await load();
+    } catch {
+      setDemoNote("Reset failed");
+    }
+  }
+
+  /**
+   * DEMO_MODE: replays PayPal's capture webhook for this order with a fixed event id. The first press
+   * is recorded (never applied); the second shows the duplicate being ignored.
+   */
+  async function simulate(captureId: string) {
+    setDemoNote(null);
+    try {
+      const r = await merchant<{ outcome: string }>("webhooks/paypal/simulate", {
+        id: `WH-SIM-${captureId}`,
+        event_type: "PAYMENT.CAPTURE.COMPLETED",
+        resource: { id: captureId, status: "COMPLETED" },
+      });
+      setDemoNote(
+        r.outcome === "duplicate"
+          ? "Duplicate webhook ignored (same event id)"
+          : "Simulated webhook recorded; the order is unchanged",
+      );
+    } catch {
+      setDemoNote("Simulated webhook was refused");
+    }
+  }
+
   async function ask() {
     setBusy(true);
     setReply(null);
@@ -160,7 +200,17 @@ export default function MerchantPage() {
         <span className="muted">
           <span className="dot" /> Live
         </span>
+        {demoReset ? (
+          <button className="btn secondary" onClick={() => void resetDemo()}>
+            Reset demo
+          </button>
+        ) : null}
       </div>
+      {demoNote ? (
+        <div className="banner" style={{ marginBottom: 16 }}>
+          {demoNote}
+        </div>
+      ) : null}
       {note ? (
         <div className="banner bad" style={{ marginBottom: 16 }}>
           {note}
@@ -243,6 +293,13 @@ export default function MerchantPage() {
                     {o.captureId ? (
                       <div className="muted">
                         Capture <Copy value={o.captureId} />
+                      </div>
+                    ) : null}
+                    {demo && o.captureId ? (
+                      <div className="row">
+                        <button className="btn secondary" onClick={() => void simulate(o.captureId!)}>
+                          Simulate webhook
+                        </button>
                       </div>
                     ) : null}
                     {o.status === "authorized" ? (

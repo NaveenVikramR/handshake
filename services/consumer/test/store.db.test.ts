@@ -155,6 +155,37 @@ describe.skipIf(!enabled)("prismaWalletStore on Postgres (DB_TESTS=1)", () => {
     expect(await store.takeLoginChallenge(`lgn_${tag}b`, now)).toBeUndefined();
   });
 
+  it("pruneLoginChallenges deletes expired rows and counts this user's live ones (M10)", async () => {
+    const payload = { v: 1 };
+    await store.putLoginChallenge({ id: `lgn_old${tag}`, userId, payload, expiresAt: now - 1000 });
+    await store.putLoginChallenge({ id: `lgn_live${tag}`, userId, payload, expiresAt: now + 60_000 });
+    expect(await store.pruneLoginChallenges(userId, now)).toBe(1);
+    expect(await db.loginChallenge.count({ where: { id: `lgn_old${tag}` } })).toBe(0);
+    await db.loginChallenge.deleteMany({ where: { id: `lgn_live${tag}` } });
+  });
+
+  it("sweepRegistrations removes abandoned sign-ups only (M10)", async () => {
+    const gone = `usr_gone${tag}`;
+    const pending = `usr_pend${tag}`;
+    await store.createUser({ id: gone, displayName: "abandoned" });
+    await store.createUser({ id: pending, displayName: "in progress" });
+    // Fresh times: Neon round trips make the suite outlive its start-time `now`.
+    const t = Date.now();
+    await store.putRegistrationChallenge(gone, "c1", t - 1000);
+    await store.putRegistrationChallenge(pending, "c2", t + 60_000);
+    try {
+      // createdAt is the database's clock; leave room for skew against this machine's.
+      await store.sweepRegistrations(Date.now(), Date.now() + 60_000);
+      expect(await store.userExists(gone)).toBe(false);
+      expect(await store.userExists(pending)).toBe(true);
+      // The test's own user has a passkey, so it stays.
+      expect(await store.userExists(userId)).toBe(true);
+    } finally {
+      await db.registrationChallenge.deleteMany({ where: { userId: { in: [gone, pending] } } });
+      await db.user.deleteMany({ where: { id: { in: [gone, pending] } } });
+    }
+  });
+
   it("sessions resolve by token hash until they expire; wallet sign count CAS", async () => {
     await store.createSession({ tokenHash: `th${tag}`, userId, expiresAt: now + 60_000 });
     expect(await store.getSessionUser(`th${tag}`, now)).toBe(userId);

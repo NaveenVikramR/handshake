@@ -169,6 +169,13 @@ export interface GateStore<Tx = unknown> {
   bindVault(userId: string, payerId: string | undefined): Promise<boolean>;
   /** Authorized past fulfilBy, or offered (awaiting the buyer) created before `staleOfferedBefore`. */
   dueOrders(now: number, staleOfferedBefore: number, limit?: number): Promise<OrderRow[]>;
+  /** Orders holding an uncaptured PayPal authorization (the demo reset voids them first). */
+  heldOrders(): Promise<OrderRow[]>;
+  /**
+   * DEMO_MODE only (M10): clears every payment, offer, nonce, spend, approval and webhook row and sets
+   * stock back to `stock`. Users, passkeys, saved wallets, mandates and the registry stay.
+   */
+  resetDemo(stock: { sku: string; stock: number }[], allowHeld?: string[]): Promise<{ orders: number }>;
   /** Adds a refund to a captured order atomically; the new refunded total, or undefined if not captured. */
   addRefund(r: { orderId: string; refundId: string; amountMinor: number }, tx?: Tx): Promise<number | undefined>;
   /** Newest gate runs for the dashboard: each request's decisions and its order, if one was created. */
@@ -424,6 +431,33 @@ export function prismaGateStore(db: PrismaClient): GateStore<Prisma.TransactionC
         data: { status: "pending" },
       });
       return count === 1;
+    },
+    async heldOrders() {
+      return (await db.order.findMany({ where: { status: "authorized" } })).map(toOrder);
+    },
+    async resetDemo(stock, allowHeld = []) {
+      return db.$transaction(
+        async (tx) => {
+          // An order authorized since the voids ran would lose its hold: stop instead.
+          const held = await tx.order.count({ where: { status: "authorized", id: { notIn: allowHeld } } });
+          if (held > 0) throw new Error("demo reset: an order was authorized during the reset; try again");
+          // Children before parents (FKs): orders → requests, holds → offers.
+          await tx.decision.deleteMany({});
+          await tx.reconciliation.deleteMany({});
+          await tx.paypalEvent.deleteMany({});
+          const { count } = await tx.order.deleteMany({});
+          await tx.paymentRequestRow.deleteMany({});
+          await tx.stockHold.deleteMany({});
+          await tx.offer.deleteMany({});
+          await tx.usedNonce.deleteMany({});
+          await tx.mandateSpend.deleteMany({});
+          await tx.approval.deleteMany({});
+          for (const p of stock) await tx.product.updateMany({ where: { sku: p.sku }, data: { stock: p.stock } });
+          return { orders: count };
+        },
+        // Serializable: an authorization committing between the check and the deletes aborts the reset.
+        { maxWait: 10_000, timeout: 30_000, isolationLevel: "Serializable" },
+      );
     },
     async dueOrders(now, staleOfferedBefore, limit = 50) {
       const rows = await db.order.findMany({
@@ -687,6 +721,23 @@ export function memoryGateStore(seed: {
       if (!v || v.status !== "unbound" || (payerId && v.payerId !== payerId)) return false;
       v.status = "pending";
       return true;
+    },
+    async heldOrders() {
+      return [...orders.values()].filter((o) => o.status === "authorized").map((o) => ({ ...o }));
+    },
+    async resetDemo(_stock, allowHeld = []) {
+      if ([...orders.values()].some((o) => o.status === "authorized" && !allowHeld.includes(o.id))) {
+        throw new Error("demo reset: an order was authorized during the reset; try again");
+      }
+      // Spend still reserved by live orders goes back; the offer store and stock live outside this store.
+      for (const o of orders.values()) if (["offered", "authorized", "captured"].includes(o.status)) await release(o);
+      const n = orders.size;
+      orders.clear();
+      requests.clear();
+      nonces.clear();
+      decisions.length = 0;
+      reconciliations.length = 0;
+      return { orders: n };
     },
     async dueOrders(now, staleOfferedBefore) {
       return [...orders.values()]

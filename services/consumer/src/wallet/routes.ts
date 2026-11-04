@@ -17,7 +17,7 @@ import { z } from "zod";
 import { parseAssertionBody } from "../assertion-body.js";
 import type { AppContext } from "../context.js";
 import { requireSession } from "../sessions/routes.js";
-import { tokenHash } from "../sessions/service.js";
+import { MAX_PENDING_LOGINS, tokenHash } from "../sessions/service.js";
 
 const MandateId = z.string().regex(/^man_[A-Za-z0-9_-]{22}$/);
 const LinkId = z.string().regex(/^plk_[A-Za-z0-9_-]{22}$/);
@@ -153,6 +153,10 @@ export function walletRouter(ctx: AppContext): Router {
     const v = await ctx.store.getVault(user(res));
     if (!v) return void res.json({ status: "none" });
     if (v.status === "confirmed" || !v.payerId) return void res.json({ status: v.status, payerEmail: v.payerEmail });
+    // Each view stores a challenge row: sweep expired ones and cap the live ones per user (M10).
+    if ((await ctx.store.pruneLoginChallenges(user(res), ctx.now())) >= MAX_PENDING_LOGINS) {
+      return void res.status(429).json({ error: "RATE_LIMITED" });
+    }
     const iat = Math.floor(ctx.now() / 1000);
     const payload = {
       v: 1,

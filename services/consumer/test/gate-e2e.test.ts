@@ -55,7 +55,7 @@ async function chat(
   await runChat(
     hh.ctx,
     { ...hh.agent, planner: scriptedPlanner(buy(final)) },
-    { userId, message: "buy 1 rice", shipToHash: shipToHash(shipTo) },
+    { userId, message: "buy 1 rice", shipToHash: shipToHash(shipTo), shipTo },
     (e) => {
       events.push(e);
       if (e.type === "approval_required" && auth) {

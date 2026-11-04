@@ -29,10 +29,20 @@ const TOKEN = /^[A-Za-z0-9_-]{43}$/;
 /** Sessions are looked up by this, never by the token itself. */
 export const tokenHash = (token: string) => b64urlEncode(sha256(Buffer.from(token, "utf8")));
 
-/** Starts a login for a user that has a passkey; the payload's hash is the WebAuthn challenge. */
-export async function startLogin(ctx: AppContext, userId: string): Promise<LoginPayload> {
-  if (!(await ctx.store.hasCredentials(userId))) throw new HandshakeError("APPROVAL_INVALID", "no passkey for user");
+/** Live login challenges one user may hold at once (M10). */
+export const MAX_PENDING_LOGINS = 5;
+
+/**
+ * Starts a login; the payload's hash is the WebAuthn challenge. A user without a passkey gets a
+ * payload too, but nothing is stored, so its verify fails like an expired login: the response
+ * doesn't say whether the user exists (M10). `known` is for the caller's options only.
+ */
+export async function startLogin(ctx: AppContext, userId: string): Promise<{ payload: LoginPayload; known: boolean }> {
   const now = ctx.now();
+  // The same reads for every id. The live-challenge bound comes from the caller's per-user sliding
+  // window (MAX_PENDING_LOGINS per LOGIN_WINDOW_MS), which treats known and unknown ids alike.
+  await ctx.store.pruneLoginChallenges(userId, now);
+  const known = await ctx.store.hasCredentials(userId);
   const iat = Math.floor(now / 1000);
   const payload: LoginPayload = {
     v: 1,
@@ -43,8 +53,8 @@ export async function startLogin(ctx: AppContext, userId: string): Promise<Login
     exp: iat + LOGIN_WINDOW_MS / 1000,
     nonce: randomNonce(),
   };
-  await ctx.store.putLoginChallenge({ id: payload.loginId, userId, payload, expiresAt: now + LOGIN_WINDOW_MS });
-  return payload;
+  if (known) await ctx.store.putLoginChallenge({ id: payload.loginId, userId, payload, expiresAt: now + LOGIN_WINDOW_MS });
+  return { payload, known };
 }
 
 /** Verifies the login assertion once and issues a bearer token (returned once, stored only as a hash). */

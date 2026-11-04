@@ -131,6 +131,20 @@ describe("passkey registration", () => {
     expect(res.body).toEqual({ error: "REGISTRATION_EXPIRED" });
   });
 
+  it("abandoned sign-ups are swept when the next one starts (M10)", async () => {
+    const s = setup();
+    const first = await request(s.app).post("/passkeys/register/options").send({ displayName: "Gone" });
+    expect(await s.ctx.store.userExists(first.body.userId)).toBe(true);
+    // Its challenge expires and nobody finishes it.
+    s.clock.t += 6 * 60_000;
+    const { userId } = await register(s);
+    expect(await s.ctx.store.userExists(first.body.userId)).toBe(false);
+    // A finished registration stays.
+    s.clock.t += 6 * 60_000;
+    await request(s.app).post("/passkeys/register/options").send({ displayName: "Next" });
+    expect(await s.ctx.store.userExists(userId)).toBe(true);
+  });
+
   it("can't add a second passkey to an existing user (no sign-in yet → takeover risk)", async () => {
     const s = setup();
     const { userId } = await register(s);
@@ -199,6 +213,21 @@ describe("cart approval", () => {
       const { id } = await createApproval(s.ctx, cartFor(userId, s.clock.t));
       expect((await approve(s, id, auth)).status).toBe(200);
     }
+  });
+
+  it("an approval that expires while its assertion is checked → APPROVAL_EXPIRED, not a replay (M10)", async () => {
+    const s = setup();
+    const { userId, auth } = await register(s);
+    const { id } = await createApproval(s.ctx, cartFor(userId, s.clock.t));
+    // Time passes between loading the approval and completing it.
+    const getCredential = s.ctx.store.getCredential.bind(s.ctx.store);
+    s.ctx.store.getCredential = async (cid) => {
+      s.clock.t += 10 * 60_000;
+      return getCredential(cid);
+    };
+    const res = await approve(s, id, auth);
+    expect(res.body).toEqual({ error: "APPROVAL_EXPIRED" });
+    expect((await s.ctx.store.getApproval(id))?.status).toBe("pending");
   });
 
   it("UV missing → 401 APPROVAL_UV_MISSING, approval stays pending", async () => {

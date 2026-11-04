@@ -18,6 +18,8 @@ describe("Offer", () => {
     ["unknown key", { discount: 100 }],
     ["bad merchant id prefix", { merchantId: "corner" }],
     ["consumer agent as merchant agent", { merchantAgentId: "agt_c_alice" }],
+    ["hold longer than 15 minutes", { holdUntil: iat + 901 }],
+    ["hold ending before it was issued", { holdUntil: iat }],
     ["short nonce", { nonce: "abc" }],
     ["exp before iat", { exp: iat - 1 }],
     ["no items", { items: [], totalMinor: 0 }],
@@ -150,5 +152,26 @@ describe("shape only — identity binding is not a schema concern", () => {
     const h = hash(offer);
     const alt = h.slice(0, -1) + (h.endsWith("B") ? "C" : "B");
     expect(CartApproval.safeParse({ ...cart, offerHash: alt }).success).toBe(false);
+  });
+});
+
+describe("Offer hold bound (M10)", () => {
+  it("accepts a hold of exactly 15 minutes", () => {
+    expect(Offer.parse({ ...offer, holdUntil: iat + 900 }).holdUntil).toBe(iat + 900);
+  });
+});
+
+describe("signEnvelope runtime type check (M10)", () => {
+  const { privateKey } = generateEd25519KeyPair();
+  it("signs a payload with a domain type", () => {
+    expect(signEnvelope({ type: "offer", a: 1 }, privateKey, "agt_m_x").kid).toBe("agt_m_x");
+  });
+  it.each([
+    ["missing type", { a: 1 }],
+    ["empty type", { type: "" }],
+    ["non-string type", { type: 7 }],
+    ["null payload", null],
+  ])("refuses %s", (_n, payload) => {
+    expect(() => signEnvelope(payload as never, privateKey, "agt_m_x")).toThrow(TypeError);
   });
 });

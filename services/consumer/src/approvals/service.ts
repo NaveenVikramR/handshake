@@ -81,5 +81,12 @@ export async function verifyApproval(ctx: AppContext, id: string, assertion: Web
     assertion,
     now: ctx.now(),
   });
-  if (!done) throw new HandshakeError("APPROVAL_REPLAY", "approval was used concurrently");
+  if (!done) {
+    // Still pending but past its expiry: it ran out while the assertion was being checked.
+    const now2 = await ctx.store.getApproval(id);
+    if (now2?.status === "pending" && now2.expiresAt <= ctx.now()) {
+      throw new HandshakeError("APPROVAL_EXPIRED", "approval expired during verification");
+    }
+    throw new HandshakeError("APPROVAL_REPLAY", "approval was used concurrently");
+  }
 }

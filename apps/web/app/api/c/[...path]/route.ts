@@ -1,6 +1,11 @@
 // Wallet → consumer service. Allow-listed paths only; the session token lives in an httpOnly cookie
 // set here on login and is added as the bearer server-side.
-import { SESSION_COOKIE, cookieHeader, env, forward, readCookie } from "../../../../lib/server";
+import { SESSION_COOKIE, clientIp, cookieHeader, env, forward, limiter, readCookie } from "../../../../lib/server";
+
+// Passkey ceremonies per client (M10): register/options creates a user row and login/options a
+// challenge. Only this edge sees the client's address; the consumer limits per user.
+const ceremonies = limiter(20, 15 * 60_000);
+const CEREMONY = /^passkeys\/(register|login)\/options$/;
 
 export const dynamic = "force-dynamic";
 
@@ -25,6 +30,9 @@ async function handle(req: Request, ctx: { params: Promise<{ path: string[] }> }
   const path = (await ctx.params).path.join("/");
   if (!ALLOWED.some(([m, re]) => m === req.method && re.test(path))) {
     return Response.json({ error: "NOT_FOUND" }, { status: 404 });
+  }
+  if (CEREMONY.test(path) && !ceremonies(clientIp(req))) {
+    return Response.json({ error: "RATE_LIMITED" }, { status: 429 });
   }
   const token = readCookie(req, SESSION_COOKIE);
   const up = await forward(
