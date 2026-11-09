@@ -8,3 +8,4 @@ onlyBuiltDependencies:
   - prisma
   - "@prisma/engines"
   - esbuild
+  - ffmpeg-static

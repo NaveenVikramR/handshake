@@ -15,3 +15,9 @@ coverage/
 
 # pnpm e2e:deployed output
 e2e-screenshots/
+
+# pnpm --filter @handshake/e2e demo-video output (SHOTLIST.md and VOICEOVER.md are committed)
+demo/handshake-demo.mp4
+demo/raw/
+demo/build/
+demo/frames/

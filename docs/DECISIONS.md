@@ -183,3 +183,13 @@ Context: the user is away until Wednesday and asked for autonomous work with eve
 
 ## D33 — A failed tracking call no longer reports a capture as a PayPal failure (2026-11-09)
 Context: recording the demo video showed "PayPal couldn't process this payment" on the dashboard right after Fulfil & capture, although the capture had succeeded (merchant log: `order captured`, then `PAYMENT.CAPTURE.COMPLETED`). `fulfilOrder` captured, then called `addTracking`; when that threw, the route mapped it to 502 `PAYPAL_ERROR`. Decision: after a COMPLETED capture, a `PayPalApiError` from tracking is logged (`tracking failed after capture`, with HTTP status and PayPal issue) and the captured receipt is returned without a tracking number, so the existing tracking-only retry applies. Non-PayPal errors still throw. Review LOWs not done: the receipt doesn't flag that tracking is pending, and a retry with a different tracking number reuses the first `-track` request id. Open: why the sandbox rejects the tracking call; the new log line will show the issue.
+
+## D34 — How the demo video draft is made (2026-11-09)
+Decision: `pnpm --filter @handshake/e2e demo-video record` drives the deployed demo with Playwright (virtual authenticator, real sandbox buyer) and marks only the moments worth showing; `build` renders cards and captions in Chromium and cuts, speeds up and joins the segments with ffmpeg-static (`demo/handshake-demo.mp4`, 1920×1080, 30 fps, no audio, ~2:04; `demo/SHOTLIST.md` is generated from the same run). Choices made without the user:
+- Chat text is "buy 1 Basmati rice from Corner Grocery" (the brief said "buy 1 Basmati rice"); naming the shop keeps the live planner from asking which merchant.
+- PayPal runs in the phone browser, not on the desktop: D31 binds the saved wallet only for the browser that approved, so a desktop PayPal tab left the payer unconfirmable.
+- The PayPal segment is blurred, and the wallet's payer email is blurred with injected CSS, so the sandbox buyer's email (a private judge credential) never appears.
+- Playwright records CSS pixels, so the phone is a 780×1688 window with our pages zoomed 2× (a 390-px layout), and the dashboard is zoomed 1.5× to stay readable after compression.
+- The assistant is asked for two plain sentences (the dashboard's markdown renderer has no tables) and asked again if the live LLM is unavailable.
+- The results card keeps the user's wording "96/96 attacks blocked"; strictly, 96 cases pass, of which 93 are attacks and 3 are valid controls. The voiceover says it precisely.
+- Passkeys in the video are a virtual authenticator, captioned as such; no real Face ID footage exists yet.
