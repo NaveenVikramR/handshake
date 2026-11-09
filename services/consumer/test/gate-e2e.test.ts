@@ -10,6 +10,10 @@ import { activateMandate, createMandate } from "../src/mandates/service.js";
 import { harness, lastResult, scriptedPlanner, shipTo, type Harness } from "./agent-harness.js";
 
 let h: Harness | undefined;
+
+/** The `r` on the return URL the merchant gave PayPal for the first order. */
+const returnSecretOf = (hh: Harness) =>
+  new URL((hh.paypal.calls.find((c) => c.op === "create")!.args as { returnUrl: string }).returnUrl).searchParams.get("r")!;
 afterEach(async () => {
   await h?.close();
   h = undefined;
@@ -89,7 +93,8 @@ describe("chat → real gate", () => {
     await request(h.merchantUrl)
       .post("/paypal/return")
       .set("authorization", "Bearer admin-token-0123456789abcdef")
-      .send({ token: ppToken, walletUserId: userId });
+      // PayPal redirects the approving browser to the order's return URL, secret included (D31).
+      .send({ token: ppToken, walletUserId: userId, r: returnSecretOf(h) });
     const link = await request(h.app).get("/wallet/paypal").set("authorization", `Bearer ${token}`);
     expect(link.body).toMatchObject({ status: "pending", payerEmail: "buyer@example.com" });
     const ok = await request(h.app)

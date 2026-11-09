@@ -18,9 +18,9 @@ the step-5 currency comparison is defence in depth that this suite doesn't reach
 
 | | Count |
 |---|---|
-| Cases | 94 (3 controls, 91 attacks) |
-| Passed | 94 |
-| SPEC §11 items covered | 25 |
+| Cases | 96 (3 controls, 93 attacks) |
+| Passed | 96 |
+| SPEC §11 items covered | 26 |
 | Unauthorized authorizations | 0 |
 | Duplicate charges | 0 |
 
@@ -120,3 +120,5 @@ the step-5 currency comparison is defence in depth that this suite doesn't reach
 | A91 | Wrong origin/rpId | Registration ceremony data passed off as an assertion | `APPROVAL_INVALID` | `APPROVAL_INVALID` | no | ✅ |
 | A92 | Wrong origin/rpId | Assertion over a different payload's hash | `CART_HASH_MISMATCH` | `CART_HASH_MISMATCH` | no | ✅ |
 | A93 | Wrong origin/rpId | Assertion from a passkey the registry doesn't know | `APPROVAL_INVALID` | `APPROVAL_INVALID` | no | ✅ |
+| A94 | Saved wallet bound to the approving browser (D31) | Phishing order owner opens the PayPal return in their own signed-in browser (no return secret) | `vault:unbound` | `vault:unbound` | no | ✅ |
+| A95 | Saved wallet bound to the approving browser (D31) | Owner's return on one order attaches a wallet another order saved | `vault:unbound` | `vault:unbound` | no | ✅ |

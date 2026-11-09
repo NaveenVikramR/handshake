@@ -325,6 +325,8 @@ model PaypalVault {
   /// The PayPal account that approved saving it. A confirmed vault is never replaced by another payer.
   payerId     String?   @map("payer_id")
   payerEmail  String?   @map("payer_email")
+  /// The order whose authorize saved it; only that order's owner return can bind it (D31).
+  orderId     String?   @map("order_id")
   /// pending until the wallet user confirms the payer with a passkey (M8); only confirmed vaults pay.
   status      String    @default("pending")
   confirmedAt DateTime? @map("confirmed_at")

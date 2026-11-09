@@ -168,7 +168,7 @@ export interface GateStore<Tx = unknown> {
    * vault becomes pending (confirmable). Without this, a phished approve link can't attach a
    * victim's PayPal to the attacker's wallet, because the attacker never holds the victim's return.
    */
-  bindVault(userId: string, payerId: string | undefined): Promise<boolean>;
+  bindVault(userId: string, orderId: string): Promise<boolean>;
   /**
    * Records that the order's own wallet user came back from PayPal (before settling). saveVault reads
    * it under the vault row lock, so the binding holds whichever of the agent's /complete and the
@@ -421,6 +421,7 @@ export function prismaGateStore(db: PrismaClient): GateStore<Prisma.TransactionC
         customerId: customerId ?? null,
         payerId: payerId ?? null,
         payerEmail: payerEmail ?? null,
+        orderId: orderId ?? null,
       };
       return db.$transaction(async (tx) => {
         // Lock the row: a confirm committing between read and write must not be overwritten.
@@ -451,9 +452,9 @@ export function prismaGateStore(db: PrismaClient): GateStore<Prisma.TransactionC
         return "unbound" as const;
       }, TX);
     },
-    async bindVault(userId, payerId) {
+    async bindVault(userId, orderId) {
       const { count } = await db.paypalVault.updateMany({
-        where: { userId, status: "unbound", ...(payerId ? { payerId } : {}) },
+        where: { userId, status: "unbound", orderId },
         data: { status: "pending" },
       });
       return count === 1;
@@ -560,7 +561,7 @@ export function memoryGateStore(seed: {
   /** Saved wallets, shareable with the wallet's memory store (one table in Postgres). */
   vaults?: Map<
     string,
-    { vaultId: string; payerId?: string; payerEmail?: string; status: "unbound" | "pending" | "confirmed" }
+    { vaultId: string; orderId?: string; payerId?: string; payerEmail?: string; status: "unbound" | "pending" | "confirmed" }
   >;
   /**
    * Shared-DB stand-ins for tests that run the whole flow in memory: in Postgres these are the
@@ -587,7 +588,7 @@ export function memoryGateStore(seed: {
     seed.vaults ??
     new Map<
       string,
-      { vaultId: string; payerId?: string; payerEmail?: string; status: "unbound" | "pending" | "confirmed" }
+      { vaultId: string; orderId?: string; payerId?: string; payerEmail?: string; status: "unbound" | "pending" | "confirmed" }
     >();
   const decisions: (Decision & { requestId: string })[] = [];
   const reconciliations: Parameters<GateStore["addReconciliation"]>[0][] = [];
@@ -755,14 +756,15 @@ export function memoryGateStore(seed: {
       vaults.set(userId, {
         vaultId,
         status,
+        ...(orderId ? { orderId } : {}),
         ...(payerId ? { payerId } : {}),
         ...(payerEmail ? { payerEmail } : {}),
       });
       return "unbound";
     },
-    async bindVault(userId, payerId) {
+    async bindVault(userId, orderId) {
       const v = vaults.get(userId);
-      if (!v || v.status !== "unbound" || (payerId && v.payerId !== payerId)) return false;
+      if (!v || v.status !== "unbound" || v.orderId !== orderId) return false;
       v.status = "pending";
       return true;
     },

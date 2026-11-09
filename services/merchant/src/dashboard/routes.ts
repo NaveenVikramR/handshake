@@ -131,13 +131,14 @@ export function dashboardRouter(
   router.post("/paypal/return", express.json({ limit: "1kb" }), async (req, res) => {
     // The web server (admin bearer) rate-limits per browser itself; direct callers are limited here.
     if (!isAdmin(req) && !returns(req.ip ?? "unknown")) return void res.status(429).json({ error: "RATE_LIMITED" });
-    const body = req.body as { token?: unknown; walletUserId?: unknown } | undefined;
+    const body = req.body as { token?: unknown; walletUserId?: unknown; r?: unknown } | undefined;
     const token = PayPalToken.safeParse(body?.token);
     if (!token.success) return void res.status(400).json({ error: "SCHEMA_INVALID" });
     // Only the web server (admin bearer) may say whose browser this is.
     const vouched = isAdmin(req) && typeof body?.walletUserId === "string" ? body.walletUserId : undefined;
     try {
-      res.json(await completeByPayPalOrder(ctx, token.data, vouched));
+      const secret = typeof body?.r === "string" && /^[A-Za-z0-9_-]{43}$/.test(body.r) ? body.r : undefined;
+      res.json(await completeByPayPalOrder(ctx, token.data, vouched, secret));
     } catch (e) {
       if (e instanceof PayPalApiError) return void res.json({ status: "failed" });
       throw e;

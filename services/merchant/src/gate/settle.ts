@@ -1,8 +1,10 @@
 // Settlement (SPEC §6 step 9, §7.1): PayPal after commit, never inside a transaction (D17).
 // Every PayPal POST uses a request id fixed per order and operation, so a retry or a concurrent
 // caller gets PayPal's original result. Order status moves only via `transition` + compare-and-set.
+import { createHmac, timingSafeEqual } from "node:crypto";
 import {
   CLOCK_SKEW_S,
+  b64urlEncode,
   PaymentRequest,
   isHandshakeError,
   type Decision,
@@ -151,12 +153,29 @@ function paypalError(e: unknown): PaymentResponse {
   throw e;
 }
 
+/**
+ * The secret in an order's PayPal return URL (D31). PayPal sends it only to the browser that approved;
+ * binding a saved wallet needs it and the owner's session, so an order owner who phishes someone else
+ * into approving can't bind their PayPal from their own browser. Derived (not stored), so a create
+ * retried with the same PayPal-Request-Id, which returns the original order, still matches.
+ */
+export function returnSecret(ctx: Pick<GateContext, "self">, orderId: string): string {
+  return b64urlEncode(createHmac("sha256", `paypal-return|${ctx.self.privateKey}`).update(orderId).digest());
+}
+
+function returnSecretMatches(ctx: Pick<GateContext, "self">, orderId: string, given: string | undefined): boolean {
+  if (!given) return false;
+  const [a, b] = [Buffer.from(given), Buffer.from(returnSecret(ctx, orderId))];
+  return a.length === b.length && timingSafeEqual(a, b);
+}
+
 /** Step 9: a saved wallet pays at once; otherwise PayPal's approve link, saving the wallet (D7). */
 async function pay(ctx: GateContext, o: OrderRow): Promise<PaymentResponse> {
   const vaultId = await ctx.store.getVault(o.userId);
   const urls = {
-    // No request id in the URLs (it would sit in browser history): PayPal appends ?token=<order id>.
-    returnUrl: `${new URL(ctx.webUrl).origin}/paypal/return`,
+    // No request id in the URLs (it would sit in browser history): PayPal appends &token=<order id>.
+    // The return carries the order's return secret (D31); only the approving browser gets it.
+    returnUrl: `${new URL(ctx.webUrl).origin}/paypal/return?r=${returnSecret(ctx, o.id)}`,
     cancelUrl: `${new URL(ctx.webUrl).origin}/paypal/cancel`,
   };
   let pp: PayPalOrder;
@@ -308,16 +327,20 @@ export async function completeByPayPalOrder(
   paypalOrderId: string,
   /** The signed-in wallet user whose browser came back from PayPal (vouched for by the web server). */
   walletUserId?: string,
+  /** The `r` PayPal put on the return URL: proves this browser is the one that approved (D31). */
+  secret?: string,
 ): Promise<{ status: string }> {
   const o = await ctx.store.findOrder({ paypalOrderId });
   if (!o) return { status: "unknown" };
   // The order's owner approved on PayPal in their own session: the saved wallet becomes confirmable.
   // Marked first, so a vault the agent's /complete saves meanwhile is stored bound (D29); the bind
   // after settling covers a vault saved before the mark.
-  const owner = walletUserId !== undefined && walletUserId === o.userId;
+  // Both: the owner's session (vouched) and the approving browser (the return secret).
+  const owner = walletUserId !== undefined && walletUserId === o.userId && returnSecretMatches(ctx, o.id, secret);
   if (owner) await ctx.store.markOwnerReturned(o.id);
   const r = await settleRequest(ctx, o.requestId);
-  if (owner) await ctx.store.bindVault(o.userId, undefined);
+  // Only the wallet this order saved (D31), never another order's.
+  if (owner) await ctx.store.bindVault(o.userId, o.id);
   if (r.httpStatus === 200) return { status: (r.body as Receipt).status };
   return { status: r.httpStatus === 202 ? "payer_action_required" : "failed" };
 }

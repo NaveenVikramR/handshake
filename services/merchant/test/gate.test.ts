@@ -3,7 +3,7 @@ import request from "supertest";
 import { describe, expect, it } from "vitest";
 import { parseVerdict, riskInspector, ruleVerdict, worst, RISK_VELOCITY_LIMIT } from "../src/gate/risk.js";
 import { FULFIL_WINDOW_MS } from "../src/gate/verify.js";
-import { PAYER_ACTION_WINDOW_MS, expireOrders } from "../src/gate/settle.js";
+import { PAYER_ACTION_WINDOW_MS, expireOrders, returnSecret } from "../src/gate/settle.js";
 import { PayPalApiError } from "../src/paypal/client.js";
 import { ADMIN, gateFixture, type GateFixture } from "./gate-fixture.js";
 
@@ -764,9 +764,11 @@ describe("dashboard API (M8)", () => {
     f.paypal.approve(token);
     const back = await request(f.app).post("/paypal/return").send({ token });
     expect(back.body).toEqual({ status: "authorized" });
-    // PayPal return/cancel URLs carry no request id.
+    // PayPal return/cancel URLs carry no request id; the return carries the order's return secret (D31).
     const create = f.paypal.calls.find((c) => c.op === "create")!.args as { returnUrl: string; cancelUrl: string };
-    expect(create.returnUrl).toBe("https://wallet.handshake.test/paypal/return");
+    const o = [...f.gate.orders.values()][0]!;
+    expect(create.returnUrl).toBe(`https://wallet.handshake.test/paypal/return?r=${returnSecret(f.ctx, o.id)}`);
+    expect(create.returnUrl).not.toContain("req_");
     expect(create.cancelUrl).not.toContain("req_");
   });
 
@@ -798,12 +800,17 @@ describe("saved-wallet binding (D23 review fix)", () => {
     const res = await f.pay(f.passkeyRequest(await f.offer()));
     const token = new URL(res.body.approveUrl).searchParams.get("token")!;
     f.paypal.approve(token);
+    const r = returnSecret(f.ctx, [...f.gate.orders.values()][0]!.id);
     // A direct (unvouched) return, or one vouched for someone else, authorizes but doesn't bind.
-    await request(f.app).post("/paypal/return").send({ token, walletUserId: "usr_alice" });
+    await request(f.app).post("/paypal/return").send({ token, walletUserId: "usr_alice", r });
     expect(f.gate.vaults.get("usr_alice")?.status).toBe("unbound");
-    await request(f.app).post("/paypal/return").set("authorization", `Bearer ${ADMIN}`).send({ token, walletUserId: "usr_mallory" });
+    await request(f.app).post("/paypal/return").set("authorization", `Bearer ${ADMIN}`).send({ token, walletUserId: "usr_mallory", r });
     expect(f.gate.vaults.get("usr_alice")?.status).toBe("unbound");
+    // The owner's session without the approving browser's secret (D31: the phishing owner) doesn't bind.
     await request(f.app).post("/paypal/return").set("authorization", `Bearer ${ADMIN}`).send({ token, walletUserId: "usr_alice" });
+    await request(f.app).post("/paypal/return").set("authorization", `Bearer ${ADMIN}`).send({ token, walletUserId: "usr_alice", r: "A".repeat(43) });
+    expect(f.gate.vaults.get("usr_alice")?.status).toBe("unbound");
+    await request(f.app).post("/paypal/return").set("authorization", `Bearer ${ADMIN}`).send({ token, walletUserId: "usr_alice", r });
     expect(f.gate.vaults.get("usr_alice")?.status).toBe("pending");
   });
 
@@ -816,7 +823,10 @@ describe("saved-wallet binding (D23 review fix)", () => {
     return { req, token };
   }
   const ownerReturns = (f: Awaited<ReturnType<typeof gateFixture>>, token: string) =>
-    request(f.app).post("/paypal/return").set("authorization", `Bearer ${ADMIN}`).send({ token, walletUserId: "usr_alice" });
+    request(f.app)
+      .post("/paypal/return")
+      .set("authorization", `Bearer ${ADMIN}`)
+      .send({ token, walletUserId: "usr_alice", r: returnSecret(f.ctx, [...f.gate.orders.values()].at(-1)!.id) });
 
   it("bind before save (D29): the owner comes back while the agent's /complete is between authorize and saving", async () => {
     const f = await gateFixture();

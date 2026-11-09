@@ -52,7 +52,7 @@ async function handle(req: Request, ctx: { params: Promise<{ path: string[] }> }
   } else if (path === "paypal/return") {
     if (!returns(clientIp(req))) return Response.json({ error: "RATE_LIMITED" }, { status: 429 });
     // Vouch for whose browser came back from PayPal (binds a saved wallet to its owner, D23).
-    const token = (await req.clone().json().catch(() => ({}))) as { token?: unknown };
+    const token = (await req.clone().json().catch(() => ({}))) as { token?: unknown; r?: unknown };
     const session = readCookie(req, SESSION_COOKIE);
     let walletUserId: string | undefined;
     if (session) {
@@ -65,7 +65,11 @@ async function handle(req: Request, ctx: { params: Promise<{ path: string[] }> }
     const up = await fetch(`${env("MERCHANT_URL").replace(/\/$/, "")}/paypal/return`, {
       method: "POST",
       headers: { "content-type": "application/json", authorization: `Bearer ${env("MERCHANT_ADMIN_TOKEN")}` },
-      body: JSON.stringify({ token: token.token, ...(walletUserId ? { walletUserId } : {}) }),
+      body: JSON.stringify({
+        token: token.token,
+        ...(walletUserId ? { walletUserId } : {}),
+        ...(typeof token.r === "string" ? { r: token.r.slice(0, 64) } : {}),
+      }),
       redirect: "error",
     });
     return new Response(up.body, { status: up.status, headers: { "content-type": "application/json", "cache-control": "no-store" } });

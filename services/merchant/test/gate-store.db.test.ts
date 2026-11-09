@@ -185,9 +185,11 @@ describe.skipIf(!enabled)("gate store on Postgres (DB_TESTS=1)", () => {
   it("saved wallets: unbound until bound, then pending; a confirmed one is never replaced by another payer", async () => {
     const u = `usr_vault${tag}`;
     try {
-      expect(await store.saveVault({ userId: u, vaultId: "V1", payerId: "P1", payerEmail: "p1@x" })).toBe("unbound");
+      expect(await store.saveVault({ userId: u, orderId: "ord_v1", vaultId: "V1", payerId: "P1", payerEmail: "p1@x" })).toBe("unbound");
       expect(await store.getVault(u)).toBeUndefined();
-      expect(await store.bindVault(u, undefined)).toBe(true);
+      // Only the order that saved it can bind it (D31).
+      expect(await store.bindVault(u, "ord_other")).toBe(false);
+      expect(await store.bindVault(u, "ord_v1")).toBe(true);
       await db.paypalVault.update({ where: { userId: u }, data: { status: "confirmed" } });
       expect(await store.getVault(u)).toBe("V1");
       const both = await Promise.all([
@@ -231,7 +233,7 @@ describe.skipIf(!enabled)("gate store on Postgres (DB_TESTS=1)", () => {
       users.push(u1);
       const o1 = await mkOrder(1);
       await store.markOwnerReturned(o1);
-      expect(await store.bindVault(u1, undefined)).toBe(false);
+      expect(await store.bindVault(u1, o1)).toBe(false);
       await store.saveVault({ userId: u1, orderId: o1, vaultId: "V1", payerId: "P1" });
       expect(await status(u1)).toBe("pending");
 
@@ -242,7 +244,7 @@ describe.skipIf(!enabled)("gate store on Postgres (DB_TESTS=1)", () => {
       await store.saveVault({ userId: u2, orderId: o2, vaultId: "V2", payerId: "P2" });
       expect(await status(u2)).toBe("unbound");
       await store.markOwnerReturned(o2);
-      expect(await store.bindVault(u2, undefined)).toBe(true);
+      expect(await store.bindVault(u2, o2)).toBe(true);
       expect(await status(u2)).toBe("pending");
 
       // Another order's owner returning binds nothing here.
@@ -261,7 +263,7 @@ describe.skipIf(!enabled)("gate store on Postgres (DB_TESTS=1)", () => {
           store.saveVault({ userId: u, orderId: o, vaultId: `VC${i}`, payerId: "PC" }),
           (async () => {
             await store.markOwnerReturned(o);
-            await store.bindVault(u, undefined);
+            await store.bindVault(u, o);
           })(),
         ]);
         expect(await status(u)).toBe("pending");

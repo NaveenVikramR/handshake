@@ -103,8 +103,7 @@ Accept: 0 unauthorized authorizations, 0 duplicate charges.
 - [ ] real-phone Face ID / fingerprint on https://handshake-web-debi.onrender.com: sign up, approve a cart, sign in again (the user; everything else in this flow is covered by `pnpm e2e:deployed`)
 
 ## M11 Ship — Mon 9 Nov
-- [ ] Render deploy (3 services) pointing at the Neon `main` branch; migrations applied there; health checks (merchant already on Render against `dev`, D19: switch `DATABASE_URL`/`DIRECT_URL` to `main`, seed it)
-- [ ] Demo tools on `main`: turn `DEMO_MODE` off for the production deploy, or keep it on knowing that reset stays off unless `DEMO_DATABASE_HOST` is changed to the `main` host (D26)
+- [x] Judging deploy stays on Neon `dev` with `DEMO_MODE` on (D30: judges need Reset demo and the attack panel; no late database move)
 - [ ] README (problem, architecture diagram, setup, sandbox creds, "what changed", AI tools used), MIT LICENSE
 - [ ] `/ship-check` passes
 

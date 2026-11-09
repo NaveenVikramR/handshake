@@ -1,20 +1,23 @@
 "use client";
-// PayPal sends the buyer back here with ?token=<PayPal order id>. We ask the merchant to finish;
-// only the status comes back (no request id or receipt in the URL or the page).
+// PayPal sends the buyer back here with ?r=<return secret>&token=<PayPal order id>. We ask the
+// merchant to finish; only the status comes back (no request id or receipt in the URL or the page).
+// `r` proves this browser is the one that approved on PayPal (D31).
 import { Suspense, useEffect, useState } from "react";
 import { useSearchParams } from "next/navigation";
 import { merchant } from "../../../lib/api";
 import { WAITING_FOR_PAYPAL, orderPill } from "../../../lib/ui";
 
 function Return() {
-  const token = useSearchParams().get("token");
+  const params = useSearchParams();
+  const token = params.get("token");
+  const r = params.get("r");
   const [status, setStatus] = useState<string>("loading");
   useEffect(() => {
     if (!token) return setStatus("unknown");
-    merchant<{ status: string }>("paypal/return", { token })
+    merchant<{ status: string }>("paypal/return", { token, ...(r ? { r } : {}) })
       .then((r) => setStatus(r.status))
       .catch(() => setStatus("failed"));
-  }, [token]);
+  }, [token, r]);
 
   if (status === "loading") return <p className="muted">Finishing with PayPal…</p>;
   if (status === "authorized" || status === "captured") {
