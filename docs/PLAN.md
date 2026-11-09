@@ -105,11 +105,11 @@ Accept: 0 unauthorized authorizations, 0 duplicate charges.
 ## M11 Ship — Mon 9 Nov
 - [x] Judging deploy stays on Neon `dev` with `DEMO_MODE` on (D30: judges need Reset demo and the attack panel; no late database move)
 - [x] README (problem, architecture diagram, setup, sandbox creds, "what changed", AI tools used), MIT LICENSE (9 Nov; judges' sandbox buyer login and admin token go in the Devpost testing instructions)
-- [ ] `/ship-check` passes (9 Nov run: repo, README apart from the quote, .env.example, no committed secrets, tests 603, attack 96/96, EVAL current, Render health all pass; open: real-phone passkey, capture seen in the PayPal sandbox dashboard, video, Devpost form. The Render item now names the Neon dev branch (D30))
+- [ ] `/ship-check` passes (9 Nov evening run: repo public with MIT licence, README, `.env.example`, no committed secrets, tests 605, attack 96/96, EVAL current with live sandbox evidence, Render healthy on Neon dev (D30), reset works, three live attacks blocked; phone box satisfied on M0 + virtual-authenticator evidence (D32). Open, all the user's: a PayPal sandbox dashboard screenshot of the capture, real Face ID footage if wanted, YouTube upload, Devpost form. See docs/HANDOFF.md)
 
 ## M12 Video + submit — Tue 10 – Wed 11 Nov
-- [ ] record per SPEC §12, upload public YouTube, < 3 min
-- [ ] Devpost form; submit; screenshot confirmation
+- [ ] record per SPEC §12, upload public YouTube, < 3 min (9 Nov: draft `demo/handshake-demo.mp4` built, 2:04, captions burned in, no audio; `demo/SHOTLIST.md`, `demo/VOICEOVER.md`, D34. Left: watch it, optional voiceover, upload)
+- [ ] Devpost form; submit; screenshot confirmation (text ready in `docs/SUBMISSION.md`; fill the three placeholders in the private testing field)
 
 ## Stretch (only if ahead)
 - [ ] merchant exposes MCP server; consumer agent calls it as MCP client
