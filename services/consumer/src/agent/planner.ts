@@ -25,18 +25,30 @@ export interface Planner {
   next(messages: PlannerMessage[], tools: ToolSpec[]): Promise<{ content: string | null; toolCalls: ToolCall[] }>;
 }
 
+/**
+ * Groq answers 400 `tool_use_failed` when the model emitted a tool call it couldn't parse; the same
+ * request usually succeeds when sent again. The SDK retries only 408/409/429/5xx.
+ */
+export function isToolUseFailed(e: unknown): boolean {
+  if (!(e instanceof OpenAI.APIError) || e.status !== 400) return false;
+  const code = (e.error as { code?: unknown } | undefined)?.code ?? e.code;
+  return code === "tool_use_failed";
+}
+const TOOL_USE_RETRIES = 2;
+
 /** OpenAI-compatible chat completions (LLM_BASE_URL / LLM_MODEL, e.g. Groq). */
 export function openAIPlanner(opts: { baseURL: string; apiKey: string; model: string; fetch?: typeof fetch }): Planner {
   const client = new OpenAI({
     baseURL: opts.baseURL,
     apiKey: opts.apiKey,
     timeout: 30_000,
-    maxRetries: 1,
+    // Rate limits and 5xx, with the SDK's backoff.
+    maxRetries: 3,
     ...(opts.fetch ? { fetch: opts.fetch } : {}),
   });
   return {
     async next(messages, tools) {
-      const res = await client.chat.completions.create({
+      const create = () => client.chat.completions.create({
         model: opts.model,
         temperature: 0,
         messages: messages.map((m) => {
@@ -63,6 +75,15 @@ export function openAIPlanner(opts: { baseURL: string; apiKey: string; model: st
           function: { name: t.name, description: t.description, parameters: t.parameters },
         })),
       });
+      let res: Awaited<ReturnType<typeof create>>;
+      for (let attempt = 0; ; attempt++) {
+        try {
+          res = await create();
+          break;
+        } catch (e) {
+          if (attempt >= TOOL_USE_RETRIES || !isToolUseFailed(e)) throw e;
+        }
+      }
       const msg = res.choices[0]?.message;
       return {
         content: msg?.content ?? null,

@@ -38,7 +38,13 @@ export function chatRouter(ctx: AppContext): Router {
         { signal: abort.signal },
       );
     } catch (e) {
-      console.error("chat failed", e instanceof Error ? e.name : "unknown");
+      // Name, HTTP status and provider code only (e.g. an LLM 429 or tool_use_failed); never payloads.
+      const err = e as { name?: unknown; status?: unknown; code?: unknown; error?: { code?: unknown } };
+      console.error("chat failed", {
+        name: e instanceof Error ? e.name : "unknown",
+        status: typeof err.status === "number" ? err.status : undefined,
+        code: String(err.error?.code ?? err.code ?? "").slice(0, 40) || undefined,
+      });
       send({ type: "error", error: "INTERNAL" } as { type: string });
     }
     send({ type: "done" });
