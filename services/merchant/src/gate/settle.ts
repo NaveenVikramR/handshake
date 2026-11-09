@@ -121,6 +121,7 @@ async function authorized(
     const payer = payerOf(pp);
     const saved = await ctx.store.saveVault({
       userId: o.userId,
+      orderId: o.id,
       vaultId: vault.id,
       customerId: vault.customer?.id,
       payerId: payer.payerId,
@@ -310,9 +311,13 @@ export async function completeByPayPalOrder(
 ): Promise<{ status: string }> {
   const o = await ctx.store.findOrder({ paypalOrderId });
   if (!o) return { status: "unknown" };
-  const r = await settleRequest(ctx, o.requestId);
   // The order's owner approved on PayPal in their own session: the saved wallet becomes confirmable.
-  if (walletUserId && walletUserId === o.userId) await ctx.store.bindVault(o.userId, undefined);
+  // Marked first, so a vault the agent's /complete saves meanwhile is stored bound (D29); the bind
+  // after settling covers a vault saved before the mark.
+  const owner = walletUserId !== undefined && walletUserId === o.userId;
+  if (owner) await ctx.store.markOwnerReturned(o.id);
+  const r = await settleRequest(ctx, o.requestId);
+  if (owner) await ctx.store.bindVault(o.userId, undefined);
   if (r.httpStatus === 200) return { status: (r.body as Receipt).status };
   return { status: r.httpStatus === 202 ? "payer_action_required" : "failed" };
 }

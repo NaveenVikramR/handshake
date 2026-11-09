@@ -289,6 +289,9 @@ model Order {
   /// PayPal approve link while the buyer still has to approve a first (vault-saving) order.
   payerActionUrl  String?   @map("payer_action_url")
   trackingNumber  String?   @map("tracking_number")
+  /// The order's own wallet user came back from PayPal in their signed-in browser (D23, D29): a vault
+  /// saved for this order afterwards is stored pending instead of unbound.
+  ownerReturnedAt DateTime? @map("owner_returned_at")
   /// Fulfil (capture) or void by this time; the expiry job voids after it.
   fulfilBy        DateTime  @map("fulfil_by")
   createdAt       DateTime  @default(now()) @map("created_at")

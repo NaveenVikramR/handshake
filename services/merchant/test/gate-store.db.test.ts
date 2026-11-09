@@ -200,5 +200,75 @@ describe.skipIf(!enabled)("gate store on Postgres (DB_TESTS=1)", () => {
       await db.paypalVault.deleteMany({ where: { userId: u } });
     }
   });
+
+  it("owner returned (D29): the wallet ends pending whichever of save and bind runs first, also concurrently", async () => {
+    const mkOrder = async (i: number) => {
+      const requestId = `req_own${tag}${i}`;
+      const id = `ord_own${tag}${i}`;
+      await db.paymentRequestRow.create({ data: { requestId, agentId, userId, offerId: `off_own${tag}${i}` } });
+      await db.order.create({
+        data: {
+          id,
+          requestId,
+          userId,
+          offerId: `off_own${tag}${i}`,
+          status: "authorized",
+          path: "passkey",
+          totalMinor: 499,
+          currency: "USD",
+          offerHash: "h",
+          approvalHash: "a",
+          fulfilBy: new Date(Date.now() + 3_600_000),
+        },
+      });
+      return id;
+    };
+    const status = async (u: string) => (await db.paypalVault.findUnique({ where: { userId: u } }))?.status;
+    const users: string[] = [];
+    try {
+      // Bind before save: the browser's mark + bind find no vault yet; the agent's save stores it bound.
+      const u1 = `usr_own1${tag}`;
+      users.push(u1);
+      const o1 = await mkOrder(1);
+      await store.markOwnerReturned(o1);
+      expect(await store.bindVault(u1, undefined)).toBe(false);
+      await store.saveVault({ userId: u1, orderId: o1, vaultId: "V1", payerId: "P1" });
+      expect(await status(u1)).toBe("pending");
+
+      // Save before bind: stored unbound, then the owner's return binds it.
+      const u2 = `usr_own2${tag}`;
+      users.push(u2);
+      const o2 = await mkOrder(2);
+      await store.saveVault({ userId: u2, orderId: o2, vaultId: "V2", payerId: "P2" });
+      expect(await status(u2)).toBe("unbound");
+      await store.markOwnerReturned(o2);
+      expect(await store.bindVault(u2, undefined)).toBe(true);
+      expect(await status(u2)).toBe("pending");
+
+      // Another order's owner returning binds nothing here.
+      const u3 = `usr_own3${tag}`;
+      users.push(u3);
+      const o3 = await mkOrder(3);
+      await store.saveVault({ userId: u3, orderId: o3, vaultId: "V3", payerId: "P3" });
+      expect(await status(u3)).toBe("unbound");
+
+      // Concurrent: the agent's save and the browser's mark-then-bind race; always pending.
+      for (let i = 0; i < 6; i++) {
+        const u = `usr_ownc${i}${tag}`;
+        users.push(u);
+        const o = await mkOrder(10 + i);
+        await Promise.all([
+          store.saveVault({ userId: u, orderId: o, vaultId: `VC${i}`, payerId: "PC" }),
+          (async () => {
+            await store.markOwnerReturned(o);
+            await store.bindVault(u, undefined);
+          })(),
+        ]);
+        expect(await status(u)).toBe("pending");
+      }
+    } finally {
+      await db.paypalVault.deleteMany({ where: { userId: { in: users } } });
+    }
+  });
 });
 

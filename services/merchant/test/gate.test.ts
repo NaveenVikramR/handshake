@@ -806,5 +806,49 @@ describe("saved-wallet binding (D23 review fix)", () => {
     await request(f.app).post("/paypal/return").set("authorization", `Bearer ${ADMIN}`).send({ token, walletUserId: "usr_alice" });
     expect(f.gate.vaults.get("usr_alice")?.status).toBe("pending");
   });
+
+  /** A first order waiting on PayPal, approved by the buyer: returns the request and PayPal's token. */
+  async function approvedFirstOrder(f: Awaited<ReturnType<typeof gateFixture>>) {
+    const req = f.passkeyRequest(await f.offer());
+    const res = await f.pay(req);
+    const token = new URL(res.body.approveUrl).searchParams.get("token")!;
+    f.paypal.approve(token);
+    return { req, token };
+  }
+  const ownerReturns = (f: Awaited<ReturnType<typeof gateFixture>>, token: string) =>
+    request(f.app).post("/paypal/return").set("authorization", `Bearer ${ADMIN}`).send({ token, walletUserId: "usr_alice" });
+
+  it("bind before save (D29): the owner comes back while the agent's /complete is between authorize and saving", async () => {
+    const f = await gateFixture();
+    const { req, token } = await approvedFirstOrder(f);
+    const save = f.gate.store.saveVault.bind(f.gate.store);
+    let release!: () => void;
+    let reached!: () => void;
+    const held = new Promise<void>((r) => (release = r));
+    const atSave = new Promise<void>((r) => (reached = r));
+    f.gate.store.saveVault = async (v) => {
+      reached();
+      await held;
+      return save(v);
+    };
+    const agent = request(f.app).post(`/payments/${req.requestId}/complete`).send(req).then((r) => r);
+    await atSave;
+    f.gate.store.saveVault = save;
+    // The order is already authorized, so the browser's settle saves nothing and its bind finds no vault.
+    expect((await ownerReturns(f, token)).body).toEqual({ status: "authorized" });
+    expect(f.gate.vaults.get("usr_alice")).toBeUndefined();
+    release();
+    expect((await agent).status).toBe(200);
+    expect(f.gate.vaults.get("usr_alice")?.status).toBe("pending");
+  });
+
+  it("save before bind (D29): the agent's /complete saves the wallet unbound, then the owner's return binds it", async () => {
+    const f = await gateFixture();
+    const { req, token } = await approvedFirstOrder(f);
+    expect((await request(f.app).post(`/payments/${req.requestId}/complete`).send(req)).status).toBe(200);
+    expect(f.gate.vaults.get("usr_alice")?.status).toBe("unbound");
+    await ownerReturns(f, token);
+    expect(f.gate.vaults.get("usr_alice")?.status).toBe("pending");
+  });
 });
 
