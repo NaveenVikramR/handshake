@@ -190,6 +190,15 @@ describe("payments calls", () => {
     expect(JSON.parse(c.body!)).toEqual({ final_capture: true });
   });
 
+  it("getCapture: GET by id, no PayPal-Request-Id, keeps id and status", async () => {
+    const { paypal, calls } = client([TOKEN, { status: 200, body: { id: "CAP-1", status: "COMPLETED", amount: {} } }]);
+    expect(await paypal.getCapture("CAP-1")).toEqual({ id: "CAP-1", status: "COMPLETED" });
+    const c = apiCalls(calls)[0]!;
+    expect(c.method).toBe("GET");
+    expect(c.url).toBe(`${PAYPAL_SANDBOX_BASE_URL}/v2/payments/captures/CAP-1`);
+    expect(c.headers["PayPal-Request-Id"]).toBeUndefined();
+  });
+
   it("voidAuthorization: POST without a body", async () => {
     const { paypal, calls } = client([TOKEN, { status: 200, body: { id: "AUTH-1", status: "VOIDED" } }]);
     expect(await paypal.voidAuthorization("AUTH-1", "req_void")).toEqual({ id: "AUTH-1", status: "VOIDED" });

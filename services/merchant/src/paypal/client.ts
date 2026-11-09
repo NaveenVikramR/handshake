@@ -302,6 +302,11 @@ export function createPayPalClient(config: PayPalConfig) {
       return call(Order, "GET", `/v2/checkout/orders/${seg(orderId)}`);
     },
 
+    /** Read-only: a capture's current status (evidence script; nothing in the payment flow calls it). */
+    async getCapture(captureId: string): Promise<PayPalCapture> {
+      return call(Capture, "GET", `/v2/payments/captures/${seg(captureId)}`);
+    },
+
     async authorizeOrder(orderId: string, requestId: string): Promise<PayPalOrder> {
       return call(Order, "POST", `/v2/checkout/orders/${seg(orderId)}/authorize`, requestId, {});
     },
