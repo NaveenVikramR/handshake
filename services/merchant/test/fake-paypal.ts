@@ -11,7 +11,7 @@ export function fakePayPal(opts: { autoApprove?: boolean } = {}) {
   const orders = new Map<string, PayPalOrder>();
   const byRequest = new Map<string, unknown>();
   let n = 0;
-  const fail = { create: undefined as PayPalApiError | undefined };
+  const fail = { create: undefined as PayPalApiError | undefined, track: undefined as PayPalApiError | undefined };
 
   const once = <T>(op: string, requestId: string, make: () => T): T => {
     const key = `${op}:${requestId}`;
@@ -87,6 +87,7 @@ export function fakePayPal(opts: { autoApprove?: boolean } = {}) {
     },
     async addTracking(orderId, requestId, input) {
       calls.push({ op: "track", requestId, args: { orderId, ...input } });
+      if (fail.track) throw fail.track;
       return once("track", requestId, () => ({ id: orderId, status: "COMPLETED" }));
     },
   };

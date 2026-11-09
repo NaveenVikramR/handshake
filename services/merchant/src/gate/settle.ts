@@ -471,17 +471,24 @@ export async function fulfilOrder(
       await move(ctx, o, "captured", { captureId: cap.id });
       log(ctx, "order captured", { orderId: o.id, captureId: cap.id });
       if (input.trackingNumber) {
-        await ctx.paypal.addTracking(o.paypalOrderId, paypalRequestId(o, "track"), {
-          captureId: cap.id,
-          trackingNumber: input.trackingNumber,
-          carrier: "OTHER",
-          carrierNameOther: "Handshake Courier",
-        });
-        await ctx.store.patchOrder({
-          orderId: o.id,
-          status: "captured",
-          set: { trackingNumber: input.trackingNumber },
-        });
+        // The money is captured either way: a failed tracking call must not report the capture as a
+        // PayPal failure. The order stays without a tracking number, so the tracking-only retry applies.
+        try {
+          await ctx.paypal.addTracking(o.paypalOrderId, paypalRequestId(o, "track"), {
+            captureId: cap.id,
+            trackingNumber: input.trackingNumber,
+            carrier: "OTHER",
+            carrierNameOther: "Handshake Courier",
+          });
+          await ctx.store.patchOrder({
+            orderId: o.id,
+            status: "captured",
+            set: { trackingNumber: input.trackingNumber },
+          });
+        } catch (e) {
+          if (!(e instanceof PayPalApiError)) throw e;
+          log(ctx, "tracking failed after capture", { orderId: o.id, status: e.httpStatus, issue: e.issue ?? null });
+        }
       }
     } else if (cap.status === "DECLINED" || cap.status === "FAILED") {
       await move(ctx, o, "failed", { captureId: cap.id }, { release: true });

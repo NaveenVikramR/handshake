@@ -783,6 +783,21 @@ describe("dashboard API (M8)", () => {
     expect((await admin(request(f.app).post(`/orders/${o.id}/refund`)).send({})).status).toBe(409);
   });
 
+  it("a failed tracking call after capture still returns the captured receipt; tracking can be retried", async () => {
+    const f = await gateFixture();
+    await payFirstTime(f, f.passkeyRequest(await f.offer()));
+    const o = [...f.gate.orders.values()][0]!;
+    f.paypal.fail.track = new PayPalApiError(422, "UNPROCESSABLE_ENTITY", undefined);
+    const res = await admin(request(f.app).post(`/orders/${o.id}/fulfil`)).send({ fulfilled: true, trackingNumber: "TRK-1" });
+    expect(res.status).toBe(200);
+    expect(res.body.status).toBe("captured");
+    expect(res.body.trackingNumber).toBeUndefined();
+    f.paypal.fail.track = undefined;
+    const retry = await admin(request(f.app).post(`/orders/${o.id}/fulfil`)).send({ fulfilled: true, trackingNumber: "TRK-1" });
+    expect(retry.body).toMatchObject({ status: "captured", trackingNumber: "TRK-1" });
+    expect(f.paypal.calls.filter((c) => c.op === "capture")).toHaveLength(1);
+  });
+
   it("tracking-only retry on a captured order without tracking", async () => {
     const f = await gateFixture();
     await payFirstTime(f, f.passkeyRequest(await f.offer()));
