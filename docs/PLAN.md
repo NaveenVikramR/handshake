@@ -104,8 +104,8 @@ Accept: 0 unauthorized authorizations, 0 duplicate charges.
 
 ## M11 Ship — Mon 9 Nov
 - [x] Judging deploy stays on Neon `dev` with `DEMO_MODE` on (D30: judges need Reset demo and the attack panel; no late database move)
-- [ ] README (problem, architecture diagram, setup, sandbox creds, "what changed", AI tools used), MIT LICENSE
-- [ ] `/ship-check` passes
+- [ ] README (problem, architecture diagram, setup, sandbox creds, "what changed", AI tools used), MIT LICENSE (9 Nov: README written and MIT LICENSE added; left: the CEO quote at the TODO line under "The problem"; judges' sandbox buyer login and admin token go in the Devpost testing instructions)
+- [ ] `/ship-check` passes (9 Nov run: repo, README apart from the quote, .env.example, no committed secrets, tests 603, attack 96/96, EVAL current, Render health all pass; open: CEO quote, real-phone passkey, capture seen in the PayPal sandbox dashboard, video, Devpost form. The "Neon main" item is superseded by D30)
 
 ## M12 Video + submit — Tue 10 – Wed 11 Nov
 - [ ] record per SPEC §12, upload public YouTube, < 3 min
