@@ -1,3 +1,4 @@
+import { raiseCart } from "../../packages/core/src/index.js";
 import { defineAttack } from "./harness.js";
 
 export default defineAttack({
@@ -8,9 +9,8 @@ export default defineAttack({
   expect: "CART_MISMATCH",
   async run(h) {
     const { request } = await h.happyPathRequest();
-    const cart = h.cart(request);
-    cart.items[0]!.unitMinor += 1000;
-    cart.totalMinor += 1000;
-    return h.submit(h.resign(request));
+    if (request.authorization.kind !== "passkey") throw new Error("passkey request expected");
+    const cartApproval = raiseCart(request.authorization.cartApproval, 1000);
+    return h.submit(h.resign({ ...request, authorization: { ...request.authorization, cartApproval } }));
   },
 });

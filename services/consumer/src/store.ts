@@ -1,6 +1,14 @@
 // Persistence for the wallet: users, passkeys, registration challenges, approvals.
 // Prisma for real runs; memory for tests. Same contract.
-import { CartApproval, HandshakeError, IntentMandate, ShipTo, hash, type WebAuthnAssertion } from "@handshake/core";
+import {
+  CartApproval,
+  HandshakeError,
+  IntentMandate,
+  ShipTo,
+  SignedOffer,
+  hash,
+  type WebAuthnAssertion,
+} from "@handshake/core";
 import type { Prisma, PrismaClient } from "@handshake/db";
 
 export interface StoredCredential {
@@ -27,6 +35,10 @@ export interface StoredApproval {
   assertion?: WebAuthnAssertion;
   /** Delivery address matching payload.shipToHash, for the phone page. */
   shipTo?: ShipTo;
+  /** The signed offer this cart is for. */
+  offer?: SignedOffer;
+  /** The gate accepted a request carrying this approval (D28). */
+  submittedRequestId?: string;
 }
 
 export interface CompleteApprovalInput {
@@ -148,6 +160,13 @@ export interface WalletStore {
   listCredentials(userId: string): Promise<StoredCredential[]>;
   createApproval(a: Omit<StoredApproval, "status" | "credentialId" | "assertion">): Promise<void>;
   getApproval(id: string): Promise<StoredApproval | undefined>;
+  /**
+   * DEMO_MODE attack demo: the newest approval the gate already accepted (so its offer is used) that
+   * kept its signed offer. Never one the human signed but the agent didn't submit (D28).
+   */
+  latestApprovedApproval(): Promise<StoredApproval | undefined>;
+  /** Records that the gate accepted the request carrying the approval with this hash. */
+  markApprovalSubmitted(hash: string, requestId: string): Promise<void>;
   /**
    * Atomically: pending + unexpired → approved, and wallet sign count expected → new.
    * false if either precondition no longer holds (replay or a concurrent approval).
@@ -366,7 +385,7 @@ export function prismaWalletStore(db: PrismaClient): WalletStore {
       const rows = await db.registryPasskey.findMany({ where: { userId }, include: { wallet: true } });
       return rows.map(toCredential);
     },
-    async createApproval({ id, userId, payload, hash, expiresAt, shipTo }) {
+    async createApproval({ id, userId, payload, hash, expiresAt, shipTo, offer }) {
       await db.approval.create({
         data: {
           id,
@@ -375,12 +394,27 @@ export function prismaWalletStore(db: PrismaClient): WalletStore {
           hash,
           expiresAt: new Date(expiresAt),
           ...(shipTo ? { shipToJson: shipTo as Prisma.InputJsonValue } : {}),
+          ...(offer ? { offerJson: offer as unknown as Prisma.InputJsonValue } : {}),
         },
       });
+    },
+    async latestApprovedApproval() {
+      const rows = await db.approval.findMany({
+        where: { status: "approved", submittedRequestId: { not: null } },
+        orderBy: { approvedAt: "desc" },
+        take: 10,
+        select: { id: true, offerJson: true },
+      });
+      const r = rows.find((x) => x.offerJson !== null);
+      return r ? this.getApproval(r.id) : undefined;
+    },
+    async markApprovalSubmitted(h, requestId) {
+      await db.approval.updateMany({ where: { hash: h, status: "approved" }, data: { submittedRequestId: requestId } });
     },
     async getApproval(id) {
       const r = await db.approval.findUnique({ where: { id } });
       if (!r) return undefined;
+      const offer = SignedOffer.safeParse(r.offerJson);
       // Re-parse: what goes to the phone and gets verified must still be a valid cart.
       const payload = CartApproval.safeParse(r.payloadJson);
       if (!payload.success) throw new HandshakeError("APPROVAL_INVALID", "stored cart is invalid");
@@ -394,6 +428,8 @@ export function prismaWalletStore(db: PrismaClient): WalletStore {
         ...(r.credentialId ? { credentialId: r.credentialId } : {}),
         ...(r.assertionJson ? { assertion: r.assertionJson as unknown as WebAuthnAssertion } : {}),
         ...(shipToOf(r.shipToJson) ? { shipTo: shipToOf(r.shipToJson)! } : {}),
+        ...(offer.success ? { offer: offer.data } : {}),
+        ...(r.submittedRequestId ? { submittedRequestId: r.submittedRequestId } : {}),
       };
     },
     async createMandate({ id, userId, payload, hash, pendingUntil }) {
@@ -616,6 +652,15 @@ export function memoryWalletStore(
     async getApproval(id) {
       const a = approvals.get(id);
       return a && { ...a };
+    },
+    async latestApprovedApproval() {
+      const done = [...approvals.values()].filter((a) => a.status === "approved" && a.offer && a.submittedRequestId);
+      return done.at(-1) && { ...done.at(-1)! };
+    },
+    async markApprovalSubmitted(h, requestId) {
+      for (const [id, a] of approvals) {
+        if (a.hash === h && a.status === "approved") approvals.set(id, { ...a, submittedRequestId: requestId });
+      }
     },
     async createMandate(m) {
       if ([...mandates.values()].some((x) => x.hash === m.hash)) throw new Error("mandate hash exists");

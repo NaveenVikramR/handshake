@@ -83,6 +83,12 @@ function Copy({ value }: { value: string }) {
   );
 }
 
+const ATTACKS = {
+  amount: "Amount changed after approval",
+  merchant: "Fake merchant agent",
+  replay: "Replayed approval",
+} as const;
+
 export default function MerchantPage() {
   const [authed, setAuthed] = useState<boolean | undefined>(undefined);
   const [rows, setRows] = useState<Row[]>([]);
@@ -95,6 +101,8 @@ export default function MerchantPage() {
   const [demo, setDemo] = useState(false);
   const [demoReset, setDemoReset] = useState(false);
   const [demoNote, setDemoNote] = useState<string | null>(null);
+  const [attacks, setAttacks] = useState<{ label: string; code: string; requestId?: string }[]>([]);
+  const [attacking, setAttacking] = useState(false);
 
   const load = useCallback(async () => {
     try {
@@ -173,6 +181,24 @@ export default function MerchantPage() {
       );
     } catch {
       setDemoNote("Simulated webhook was refused");
+    }
+  }
+
+  /**
+   * DEMO_MODE attack demo (D28): the consumer agent sends a real tampered request to the live gate.
+   * Each lands in Incoming requests as blocked; the panel shows the gate's answer too.
+   */
+  async function attack(kind: keyof typeof ATTACKS) {
+    setAttacking(true);
+    const label = ATTACKS[kind];
+    try {
+      const r = await merchant<{ code: string; requestId: string }>(`demo/attack/${kind}`, {});
+      setAttacks((a) => [{ label, code: r.code, requestId: r.requestId }, ...a].slice(0, 6));
+    } catch (e) {
+      const code = e instanceof ApiError ? e.code : "INTERNAL";
+      setAttacks((a) => [{ label, code: kind === "replay" && code === "APPROVAL_INVALID" ? "NO_PURCHASE_YET" : code }, ...a].slice(0, 6));
+    } finally {
+      setAttacking(false);
     }
   }
 
@@ -267,6 +293,30 @@ export default function MerchantPage() {
         </div>
 
         <div>
+          {demo ? (
+            <div className="card stack">
+              <h2>Attack demo</h2>
+              <p className="muted">Real tampered requests from the agent to the live gate.</p>
+              <div className="row" style={{ flexWrap: "wrap", gap: 8, justifyContent: "flex-start" }}>
+                {(Object.keys(ATTACKS) as (keyof typeof ATTACKS)[]).map((k) => (
+                  <button key={k} className="btn danger" disabled={attacking} onClick={() => void attack(k)}>
+                    {ATTACKS[k]}
+                  </button>
+                ))}
+              </div>
+              {attacks.map((a, i) => (
+                <div key={a.requestId ?? i} className="banner bad">
+                  <strong>{a.label}</strong>:{" "}
+                  {a.code === "OK"
+                    ? "the gate let it through"
+                    : a.code === "NO_PURCHASE_YET"
+                      ? "make one approved purchase first, then replay it"
+                      : `blocked. ${reasonFor(a.code)}`}{" "}
+                  <span className="tooltip">{a.code}</span>
+                </div>
+              ))}
+            </div>
+          ) : null}
           <div className="card">
             <h2>PayPal</h2>
             {rows.filter((r) => r.order).length === 0 ? <p className="muted">No orders yet.</p> : null}

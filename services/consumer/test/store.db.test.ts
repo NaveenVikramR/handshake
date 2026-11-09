@@ -3,7 +3,15 @@
 import { randomBytes } from "node:crypto";
 import { existsSync } from "node:fs";
 import { fileURLToPath } from "node:url";
-import { CartApproval, IntentMandate, hash, randomNonce } from "@handshake/core";
+import {
+  CartApproval,
+  IntentMandate,
+  generateEd25519KeyPair,
+  hash,
+  randomNonce,
+  signEnvelope,
+  type SignedOffer,
+} from "@handshake/core";
 import { createDb } from "@handshake/db";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { prismaWalletStore } from "../src/store.js";
@@ -88,6 +96,54 @@ describe.skipIf(!enabled)("prismaWalletStore on Postgres (DB_TESTS=1)", () => {
     expect((await store.getCredential(credentialId))?.signCount).toBe(before + 1);
     const reg = await db.registryPasskey.findUnique({ where: { credentialId } });
     expect(reg?.signCount).toBe(0n); // the merchant's count is separate (D16)
+  });
+
+  it("approval keeps its signed offer; latestApprovedApproval returns the newest gate-accepted one (M10, D28)", async () => {
+    const offerPayload = {
+      v: 1 as const,
+      type: "offer" as const,
+      offerId: `off_store2${tag}`,
+      merchantId: "mer_corner",
+      merchantAgentId: "agt_m_demo",
+      paypalMerchantId: "MERCHANT1",
+      items: [{ sku: "RICE-2KG", name: "Rice 2 kg", qty: 1, unitMinor: 499 }],
+      totalMinor: 499,
+      currency: "USD" as const,
+      iat,
+      exp: iat + 120,
+      holdUntil: iat + 600,
+      nonce: randomNonce(),
+    };
+    const offer = signEnvelope(offerPayload, generateEd25519KeyPair().privateKey, "agt_m_demo") as SignedOffer;
+    const cart = CartApproval.parse({
+      v: 1,
+      type: "cart_approval",
+      offerId: offerPayload.offerId,
+      offerHash: hash(offerPayload),
+      merchantId: "mer_corner",
+      items: offerPayload.items,
+      totalMinor: 499,
+      currency: "USD",
+      shipToHash: hash({ s: 2 }),
+      consumerAgentId: "agt_c_demo",
+      userId,
+      iat,
+      exp: iat + 300,
+      nonce: randomNonce(),
+    });
+    const id = `apr_store2${tag}`;
+    await store.createApproval({ id, userId, payload: cart, hash: hash(cart), expiresAt: now + 60_000, offer });
+    expect((await store.getApproval(id))?.offer).toEqual(offer);
+    const before = (await store.getCredential(credentialId))!.signCount;
+    const t = Date.now();
+    await store.completeApproval({ id, credentialId, expectedSignCount: before, newSignCount: before + 1, assertion, now: t });
+    // Signed but never accepted by the gate: never replayed.
+    expect((await store.latestApprovedApproval())?.id).not.toBe(id);
+    await store.markApprovalSubmitted(hash(cart), "req_store");
+    const latest = await store.latestApprovedApproval();
+    expect(latest?.id).toBe(id);
+    expect(latest?.offer).toEqual(offer);
+    expect(latest?.assertion).toEqual(assertion);
   });
 
   it("mandate: pending → active once, with the sign count CAS; expired window refused", async () => {

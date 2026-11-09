@@ -288,6 +288,13 @@ async function run(ctx: AppContext, agent: AgentConfig, s: ChatSession, name: To
         ({ request, decision } = await attempt("the merchant's risk check asked for your approval"));
         outcome = await m.client.pay(request);
       }
+      // The gate accepted it, so its offer is used now: only such an approval may be replayed by the
+      // dashboard's attack demo (D28). Bookkeeping only; the payment goes on either way.
+      if (request.authorization.kind === "passkey") {
+        await ctx.store
+          .markApprovalSubmitted(hash(request.authorization.cartApproval), request.requestId)
+          .catch(() => console.error("approval submit mark failed", request.requestId));
+      }
       if (decision.path === "mandate") s.mandateCheckouts++;
       if (outcome.kind === "payer_action") {
         s.emit({ type: "paypal_approval_required", url: outcome.approveUrl, requestId: request.requestId });

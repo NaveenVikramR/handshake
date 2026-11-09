@@ -137,6 +137,11 @@ services:
         value: https://api.groq.com/openai/v1
       - key: LLM_MODEL
         value: openai/gpt-oss-120b
+      # D28: the dashboard's attack demo; the same DEMO_SECRET as the merchant and web. Revisit for M11.
+      - key: DEMO_MODE
+        value: "true"
+      - key: DEMO_SECRET
+        sync: false
       # Same Neon dev branch as the merchant (D19); the merchant's build applies migrations.
       - key: DATABASE_URL
         sync: false

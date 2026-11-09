@@ -23,6 +23,8 @@ const ADMIN: [string, RegExp][] = [
   // DEMO_MODE tools (the merchant answers 404/401 when it's off); the demo secret is added here.
   ["POST", /^demo\/reset$/],
   ["POST", /^webhooks\/paypal\/simulate$/],
+  // Attack demo (D28): sent by the consumer agent to the live gate, so it goes to the consumer service.
+  ["POST", /^demo\/attack\/(amount|merchant|replay)$/],
 ];
 
 async function handle(req: Request, ctx: { params: Promise<{ path: string[] }> }): Promise<Response> {
@@ -36,6 +38,15 @@ async function handle(req: Request, ctx: { params: Promise<{ path: string[] }> }
     }
     headers.authorization = `Bearer ${token}`;
     if (path === "webhooks/paypal/simulate") headers["x-demo-secret"] = env("DEMO_SECRET");
+    if (path.startsWith("demo/attack/")) {
+      const up = await forward(`${env("CONSUMER_URL").replace(/\/$/, "")}/${path}`, req, {
+        "x-demo-secret": env("DEMO_SECRET"),
+      });
+      return new Response(up.body, {
+        status: up.status,
+        headers: { "content-type": up.contentType, "cache-control": "no-store" },
+      });
+    }
   } else if (!match(PUBLIC)) {
     return Response.json({ error: "NOT_FOUND" }, { status: 404 });
   } else if (path === "paypal/return") {

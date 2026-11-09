@@ -10,6 +10,7 @@ import {
   shipToHash,
   verifyApprovalAssertion,
   type ShipTo,
+  type SignedOffer,
   type WebAuthnAssertion,
 } from "@handshake/core";
 import type { AppContext } from "../context.js";
@@ -22,6 +23,7 @@ export async function createApproval(
   ctx: AppContext,
   cart: unknown,
   shipTo?: ShipTo,
+  offer?: SignedOffer,
 ): Promise<{ id: string; hash: string }> {
   const parsed = CartApproval.safeParse(cart);
   if (!parsed.success) throw new HandshakeError("SCHEMA_INVALID", "cart approval failed schema");
@@ -41,6 +43,8 @@ export async function createApproval(
     hash: h,
     expiresAt: payload.exp * 1000,
     ...(address ? { shipTo: address } : {}),
+    // Only the offer this cart was built from.
+    ...(offer && hash(offer.payload) === payload.offerHash ? { offer } : {}),
   });
   return { id, hash: h };
 }

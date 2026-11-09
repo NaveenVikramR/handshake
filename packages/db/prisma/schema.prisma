@@ -85,6 +85,10 @@ model Approval {
   status        String    @default("pending") // pending | approved | cancelled
   /// The delivery address the user gave (wallet-side); shown only if hash(shipTo) == cart.shipToHash.
   shipToJson    Json?     @map("ship_to_json")
+  /// The signed offer the cart is for (M10 attack demo: "Replayed approval" resends a used one).
+  offerJson     Json?     @map("offer_json")
+  /// Set once the gate accepted the request carrying this approval (its offer is then used, D28).
+  submittedRequestId String? @map("submitted_request_id")
   expiresAt     DateTime  @map("expires_at")
   credentialId  String?   @map("credential_id")
   assertionJson Json?     @map("assertion_json")

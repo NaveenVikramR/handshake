@@ -37,6 +37,9 @@ if (publicKeyFromPrivate(privateKey) !== self.publicKey) {
 }
 
 const ledger = prismaMandateLedger(db);
+// The dashboard's attack demo (D28): DEMO_MODE plus a secret of 16+ characters, or it isn't mounted.
+const demoSecret = process.env.DEMO_MODE === "true" ? (process.env.DEMO_SECRET ?? "") : "";
+if (demoSecret && demoSecret.length < 16) throw new Error("DEMO_SECRET must be at least 16 characters");
 const app = createApp({
   store,
   webauthn: { rpId, rpName: process.env.WEBAUTHN_RP_NAME ?? "Handshake", origin },
@@ -56,6 +59,6 @@ const app = createApp({
       model: required("LLM_MODEL"),
     }),
   },
-});
+}, demoSecret ? { demoSecret } : {});
 const port = Number(process.env.PORT ?? 4002);
 app.listen(port, () => console.log(`consumer listening on :${port} (rpId=${rpId})`));

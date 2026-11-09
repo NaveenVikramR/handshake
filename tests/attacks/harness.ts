@@ -2,10 +2,8 @@
 // authenticator) from the merchant test fixture. Each case starts from a fully valid request and
 // changes one thing; `submit` reports the gate's code and whether anything new was authorized.
 import {
-  generateEd25519KeyPair,
-  paymentRequestSigningInput,
-  signEnvelope,
-  signPayload,
+  forgeOffer as forge,
+  resignRequest,
   type CartApproval,
   type PaymentRequest,
   type SignedOffer,
@@ -92,10 +90,7 @@ export async function createHarness(opts: HarnessOptions = {}) {
   const paypalCalls = (op?: string) => f.paypal.calls.filter((c) => !op || c.op === op);
 
   /** Re-signs a (tampered) request with the consumer agent's own key, as a compromised agent would. */
-  function resign(r: PaymentRequest): PaymentRequest {
-    const body = { requestId: r.requestId, offer: r.offer, authorization: r.authorization };
-    return { ...r, agentSig: signPayload(paymentRequestSigningInput(body), f.keys.ck.privateKey) };
-  }
+  const resign = (r: PaymentRequest): PaymentRequest => resignRequest(r, f.keys.ck.privateKey);
 
   /** A new cart for `offer`, carrying the passkey assertion the human gave for `approved`'s cart. */
   function reuseApproval(approved: PaymentRequest, offer: SignedOffer, patch: Partial<CartApproval> = {}) {
@@ -108,13 +103,8 @@ export async function createHarness(opts: HarnessOptions = {}) {
   }
 
   /** An offer envelope signed by `key` (default: a key the registry has never seen). */
-  function forgeOffer(o: SignedOffer, patch: Partial<SignedOffer["payload"]>, key?: string, kid?: string) {
-    return signEnvelope(
-      { ...o.payload, ...patch },
-      key ?? generateEd25519KeyPair().privateKey,
-      kid ?? o.kid,
-    ) as SignedOffer;
-  }
+  const forgeOffer = (o: SignedOffer, patch: Partial<SignedOffer["payload"]>, key?: string, kid?: string) =>
+    forge(o, patch, key, kid);
 
   /** Swaps the risk inspector for the real one (rules + model) driven by `model`. */
   function useRiskModel(model: RiskModel) {
