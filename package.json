@@ -22,6 +22,10 @@
     "paypal:webhook": "pnpm --filter @handshake/merchant paypal:webhook",
     "sandbox:e2e": "pnpm --filter @handshake/consumer sandbox:e2e",
     "e2e:deployed": "pnpm --filter @handshake/e2e deployed",
+    "render:env-set": "tsx scripts/render.ts env-set",
+    "render:deploy": "tsx scripts/render.ts deploy",
+    "render:status": "tsx scripts/render.ts status",
+    "render:logs": "tsx scripts/render.ts logs",
     "demo:seed": "pnpm db:seed && pnpm --filter @handshake/merchant demo:reset"
   },
   "devDependencies": {

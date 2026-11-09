@@ -320,7 +320,7 @@ th {
   }
 }
 
-/* Assistant replies (lib/markdown.tsx) */
+/* Assistant replies (lib/markdown.ts) */
 .md p {
   margin: 0 0 8px;
 }

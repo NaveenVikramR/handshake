@@ -187,6 +187,9 @@ importers:
 
   tests/e2e:
     devDependencies:
+      '@handshake/db':
+        specifier: workspace:*
+        version: link:../../packages/db
       playwright:
         specifier: 1.64.1
         version: 1.64.1
