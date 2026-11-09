@@ -96,6 +96,7 @@ Accept: 0 unauthorized authorizations, 0 duplicate charges.
 - [x] M3 low findings: rate-limit `/passkeys/register/options` (each call inserts a user row) or create the user only on verify; map an approval that expires mid-verify to `APPROVAL_EXPIRED` instead of `APPROVAL_REPLAY` (M10: web-edge rate limit + abandoned sign-ups swept instead of a migration; mid-verify expiry → APPROVAL_EXPIRED)
 - [x] M8 low findings: throttle `GET /wallet/paypal` challenge rows (reuse a live one); consumer is publicly reachable on Render, so keep every route self-authenticating (moved from M8) (M10: /wallet/paypal shares the login challenge sweep; routes stay self-authenticating)
 - [x] dashboard Attack demo panel (DEMO_MODE, D28): "Amount changed after approval", "Fake merchant agent", "Replayed approval" send real tampered requests through the live gate (consumer-signed, builders shared with tests/attacks); unit + DB tests, security review HIGH fixed
+- [x] landing page at `/` wakes merchant + consumer via `/api/wake/:service` (their `/health`) with a progress bar, then links to Wallet and Merchant
 - [ ] real-phone Face ID / fingerprint on https://handshake-web-debi.onrender.com: sign up, approve a cart, sign in again (the user; everything else in this flow is covered by `pnpm e2e:deployed`)
 
 ## M11 Ship — Mon 9 Nov

@@ -114,6 +114,11 @@ h2 {
   cursor: not-allowed;
 }
 
+/* A link styled as a button that isn't ready yet; still clickable. */
+.btn.disabled {
+  opacity: 0.55;
+}
+
 .btn.secondary {
   background: #fff;
   color: var(--accent);
