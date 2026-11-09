@@ -17,7 +17,7 @@ Repository
 - [ ] `pnpm test` and `pnpm attack` green; `docs/EVAL.md` current
 
 Demo
-- [ ] Render deploy healthy (merchant, consumer, web) on the Neon `main` branch, which must stay up through judging (1–15 Dec); `DEMO_MODE` seed + reset work
+- [ ] Render deploy healthy (merchant, consumer, web) on the Neon dev branch (D30), which must stay up through judging (1–15 Dec); `DEMO_MODE` seed + reset work
 - [ ] Passkey approval works on a real phone over HTTPS
 - [ ] Happy path ends in a sandbox capture visible in the PayPal sandbox dashboard
 - [ ] Three attacks blocked live with readable reasons

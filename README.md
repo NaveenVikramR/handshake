@@ -9,7 +9,10 @@ Handshake is a payment layer for personal AI agents, built for the PayPal AI Hac
 
 ## The problem
 
-> TODO: CEO quote (exact words, who said it, source link)
+> "If you think about consumer agents buying from merchant agents, both will have to validate that this is a real consumer" … and "a real merchant that has the product."
+> — Enrique Lores, CEO, PayPal, Q3 2026 earnings call (27 Oct 2026), as reported by [PYMNTS](https://pymnts.com/news/artificial-intelligence/2026/paypal-advances-ai-plans-bnpl-payment-volume-rises-25percent)
+
+Handshake is that validation, working today on PayPal.
 
 Personal AI agents are starting to buy on our behalf, but two things are missing:
 
