@@ -1,10 +1,12 @@
 // `pnpm e2e:deployed`: the M10 phone flow against the deployed demo, with a Chrome virtual WebAuthn
 // authenticator standing in for Face ID. Reset demo → sign up → address → chat → approval page →
-// PayPal sandbox buyer → payer confirm → dashboard fulfil & capture → Simulate webhook → Activity paid.
+// PayPal sandbox buyer → payer confirm → fulfil & capture → Simulate webhook → assistant → refund (and
+// its sandbox webhook) → spending permission → a purchase with no approval step → capture.
 // Screenshots go to e2e-screenshots/ (gitignored). Prints steps and statuses only: never the admin
 // token, buyer credentials or ids beyond what the pages show.
 import { existsSync, mkdirSync } from "node:fs";
 import { fileURLToPath } from "node:url";
+import { createDb } from "@handshake/db";
 import { type BrowserContext, type CDPSession, type Page, chromium } from "playwright";
 
 const root = fileURLToPath(new URL("../../", import.meta.url));
@@ -144,6 +146,41 @@ async function paypalBuyer(page: Page): Promise<void> {
   }
 }
 
+/**
+ * The sandbox's PAYMENT.CAPTURE.REFUNDED delivery, as the deployed merchant stored it (signature
+ * verified, de-duplicated) in Neon dev's paypal_events. Returns its shape only, never the payload.
+ */
+async function refundWebhook(since: Date): Promise<Record<string, unknown>> {
+  const db = createDb();
+  try {
+    const deadline = Date.now() + 4 * MIN;
+    while (Date.now() < deadline) {
+      const ev = await db.paypalEvent.findFirst({
+        where: { type: "PAYMENT.CAPTURE.REFUNDED", receivedAt: { gte: new Date(since.getTime() - 5000) } },
+        orderBy: { receivedAt: "desc" },
+      });
+      if (ev) {
+        const p = ev.payloadJson as {
+          resource_type?: string;
+          resource?: { id?: string; status?: string; amount?: { value?: string }; links?: { rel?: string; href?: string }[] };
+        };
+        const up = p.resource?.links?.find((l) => l.rel === "up")?.href ?? "";
+        return {
+          resource_type: p.resource_type,
+          resourceStatus: p.resource?.status,
+          amount: p.resource?.amount?.value,
+          upLinksToCapture: /\/v2\/payments\/captures\/[A-Z0-9]+$/.test(up),
+          resourceKeys: Object.keys(p.resource ?? {}).sort(),
+        };
+      }
+      await new Promise((r) => setTimeout(r, 5000));
+    }
+    throw new Error("no PAYMENT.CAPTURE.REFUNDED webhook stored within 4 minutes");
+  } finally {
+    await db.$disconnect();
+  }
+}
+
 async function main(): Promise<void> {
   mkdirSync(SHOTS, { recursive: true });
   await wake();
@@ -242,22 +279,62 @@ async function main(): Promise<void> {
     await shop.locator(".pill.ok", { hasText: "Paid" }).first().waitFor();
     await snap(shop, "merchant-simulated");
 
-    step("merchant: ask the shopkeeper assistant (live LLM, read-only; no refund is confirmed)");
+    step("merchant: ask the shopkeeper assistant (live LLM, read-only)");
     const assistant = shop.locator(".card", { has: shop.getByRole("heading", { name: "Shopkeeper assistant" }) });
-    await assistant.locator("textarea").fill("What is the status of the latest order, and was it captured?");
-    await assistant.getByRole("button", { name: "Ask" }).click();
-    const reply = assistant.locator("p");
-    await reply.first().waitFor({ timeout: 2 * MIN });
-    const text = (await reply.first().textContent()) ?? "";
-    if (/unavailable|went wrong/i.test(text)) throw new Error(`assistant: ${text}`);
-    console.log(`  assistant replied (${text.length} chars)`);
+    const ask = async (q: string) => {
+      await assistant.locator("textarea").fill(q);
+      await assistant.getByRole("button", { name: "Ask" }).click();
+      const reply = assistant.locator(".md");
+      await reply.waitFor({ timeout: 2 * MIN });
+      const text = (await reply.textContent()) ?? "";
+      if (/unavailable|went wrong/i.test(text)) throw new Error(`assistant: ${text}`);
+      return text;
+    };
+    console.log(`  assistant replied (${(await ask("What is the status of the latest order, and was it captured?")).length} chars)`);
     await shop.locator(".pill.ok", { hasText: "Paid" }).first().waitFor();
     await snap(shop, "merchant-assistant");
 
-    step("wallet: Activity shows Paid");
+    step("merchant: refund via the assistant's proposal, confirmed by the shopkeeper");
+    await ask("Refund the latest captured order in full.");
+    const proposal = assistant.locator(".banner.warn", { hasText: /^Refund \$/ }).first();
+    await proposal.waitFor({ timeout: 2 * MIN });
+    const refundClicked = new Date();
+    await proposal.getByRole("button", { name: "Confirm" }).click();
+    await shop.locator(".pill.grey", { hasText: "Refunded" }).first().waitFor({ timeout: 2 * MIN });
+    await snap(shop, "merchant-refunded");
+
+    step("PayPal sandbox: PAYMENT.CAPTURE.REFUNDED webhook received and verified");
+    const shape = await refundWebhook(refundClicked);
+    console.log(`  REFUNDED webhook: ${JSON.stringify(shape)}`);
+
+    step("wallet: spending permission approved with passkey");
+    w.on("dialog", (d) => void d.accept());
+    await w.getByText("New permission").click();
+    await passkey.use(w, async () => {
+      await w.getByRole("button", { name: "Approve with passkey" }).click();
+      await w.getByRole("button", { name: "Revoke" }).waitFor();
+    });
+    await snap(w, "wallet-permission");
+
+    step(`wallet: chat "${MESSAGE}" again, covered by the permission (no approval step)`);
+    await w.locator("textarea").fill(MESSAGE);
+    await w.getByRole("button", { name: "Send" }).click();
+    await w.getByText("Covered by your spending permission").waitFor({ timeout: 3 * MIN });
+    await w.getByText(/^Held: /).waitFor({ timeout: 3 * MIN });
+    if ((await w.getByRole("link", { name: "Open approval" }).count()) > 0) throw new Error("asked for approval");
+    await snap(w, "wallet-mandate-purchase");
+
+    step("merchant: fulfil & capture the permission purchase");
+    await shop.reload();
+    await shop.getByRole("button", { name: "Fulfil & capture" }).click({ timeout: 2 * MIN });
+    await shop.locator(".pill.ok", { hasText: "Paid" }).first().waitFor({ timeout: 2 * MIN });
+    await snap(shop, "merchant-mandate-captured");
+
+    step("wallet: Activity shows one Paid and one Refunded");
     await w.reload();
     await w.locator("table .pill.ok", { hasText: "Paid" }).waitFor();
-    await snap(w, "wallet-activity-paid");
+    await w.locator("table .pill.grey", { hasText: "Refunded" }).waitFor();
+    await snap(w, "wallet-activity");
     console.log(`passed — ${shot} screenshots in e2e-screenshots/`);
   } catch (e) {
     for (const [i, p] of pages.entries()) {
