@@ -5,6 +5,7 @@
   "scripts": {
     "deployed": "tsx deployed.ts",
     "attack-demo": "tsx attack-demo.ts",
+    "return-probe": "tsx return-probe.ts",
     "typecheck": "tsc -p ."
   },
   "devDependencies": {
