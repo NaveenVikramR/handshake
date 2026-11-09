@@ -3,6 +3,7 @@
 // checks; PayPal state per order with fulfil/void/refund; shopkeeper assistant with confirm cards.
 import { useCallback, useEffect, useState } from "react";
 import { ApiError, merchant, readSSE } from "../../lib/api";
+import { Markdown } from "../../lib/markdown";
 import { GATE_STEPS, money, orderPill, reasonFor } from "../../lib/ui";
 
 interface Decision {
@@ -386,7 +387,7 @@ export default function MerchantPage() {
             <button className="btn" disabled={busy || !q.trim()} onClick={ask}>
               {busy ? <span className="spinner" /> : "Ask"}
             </button>
-            {reply ? <p>{reply}</p> : null}
+            {reply ? <Markdown text={reply} /> : null}
             {proposals.map((p) => (
               <div key={p.orderId} className="banner warn">
                 <div className="row">
