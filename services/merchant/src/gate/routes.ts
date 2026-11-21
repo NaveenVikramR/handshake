@@ -29,11 +29,16 @@ export function requireAdmin(token: string): RequestHandler {
   };
 }
 
-export function gateRouter(ctx: GateContext, opts: { adminToken: string }): Router {
+/** Per client IP; the consumer service polls for all its users from one address. */
+export const completeLimiter = () => rateLimiter(300, 60_000);
+
+export function gateRouter(
+  ctx: GateContext,
+  opts: { adminToken: string; completes?: (key: string) => boolean },
+): Router {
   if (opts.adminToken.length < 24) throw new Error("MERCHANT_ADMIN_TOKEN must be at least 24 characters");
   const router = Router();
-  // Per client IP; the consumer service polls for all its users from one address.
-  const completes = rateLimiter(300, 60_000);
+  const completes = opts.completes ?? completeLimiter();
 
   router.post("/payments", express.json({ limit: "64kb" }), async (req, res) => {
     const r = await handlePayment(ctx, req.body);

@@ -14,6 +14,8 @@ export interface AgentConfig {
   privateKey: string;
   /** Merchants the agent may contact. The LLM picks among these; it never supplies a URL. */
   merchantUrls: string[];
+  /** How the agent talks to merchants: REST routes (default) or the merchant's MCP server (D35). */
+  merchantTransport?: "http" | "mcp";
   /** Wallet web app origin; the phone approval page is `${webUrl}/approve/:id`. */
   webUrl: string;
   /** Period spend so far (D17 ledger, read-only here). */

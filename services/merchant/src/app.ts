@@ -1,7 +1,9 @@
 import express, { type ErrorRequestHandler, type Express } from "express";
 import type { AssistantDeps } from "./assistant/assistant.js";
 import { dashboardRouter } from "./dashboard/routes.js";
-import { gateRouter } from "./gate/routes.js";
+import { completeLimiter, gateRouter } from "./gate/routes.js";
+import { mcpRouter } from "./mcp/server.js";
+import { disputesRouter } from "./disputes/routes.js";
 import type { GateContext } from "./gate/verify.js";
 import { offerRouter } from "./offers/routes.js";
 import type { OfferContext } from "./offers/service.js";
@@ -37,7 +39,12 @@ export function createApp<Tx>(deps: AppDeps<Tx>): Express {
   );
   if (deps.offers) app.use(offerRouter(deps.offers));
   if (deps.gate) {
-    app.use(gateRouter(deps.gate.ctx, { adminToken: deps.gate.adminToken }));
+    const completes = completeLimiter();
+    app.use(gateRouter(deps.gate.ctx, { adminToken: deps.gate.adminToken, completes }));
+    if (deps.offers) {
+      app.use(mcpRouter({ offers: deps.offers, gate: deps.gate.ctx, completes }));
+      app.use(disputesRouter({ gate: deps.gate.ctx, offers: deps.offers.store }, { adminToken: deps.gate.adminToken }));
+    }
     app.use(
       dashboardRouter(deps.gate.ctx, {
         adminToken: deps.gate.adminToken,

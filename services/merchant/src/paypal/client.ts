@@ -70,6 +70,15 @@ const Webhook = z.object({
   event_types: z.array(z.object({ name: z.string() })).optional(),
 });
 const WebhookList = z.object({ webhooks: z.array(Webhook).optional() });
+// Simulator reply: we keep the resource as an opaque object to report its keys.
+const SimulatedEvent = z.object({
+  id: z.string().optional(),
+  event_type: z.string(),
+  resource_type: z.string().optional(),
+  resource_version: z.string().optional(),
+  resource: z.record(z.string(), z.unknown()).optional(),
+});
+export type SimulatedEvent = z.infer<typeof SimulatedEvent>;
 const ErrorBody = z.object({
   name: z.string().optional(),
   details: z.array(z.object({ issue: z.string().optional() })).optional(),
@@ -218,6 +227,7 @@ export function createPayPalClient(config: PayPalConfig) {
     path: string,
     requestId?: string,
     body?: unknown,
+    extraHeaders: { "PayPal-Mock-Response"?: string } = {},
   ): Promise<T> {
     if (method === "POST" && !requestId) throw new Error("PayPal-Request-Id is required on every POST");
     const payload = typeof body === "string" ? body : body === undefined ? undefined : JSON.stringify(body);
@@ -225,6 +235,7 @@ export function createPayPalClient(config: PayPalConfig) {
 
     for (let attempt = 0; ; attempt++) {
       const headers: Record<string, string> = {
+        ...extraHeaders,
         Authorization: `Bearer ${await getToken()}`,
         "Content-Type": "application/json",
         Prefer: "return=representation",
@@ -311,15 +322,46 @@ export function createPayPalClient(config: PayPalConfig) {
       return call(Order, "POST", `/v2/checkout/orders/${seg(orderId)}/authorize`, requestId, {});
     },
 
-    /** Captures the full authorized amount and closes the authorization. */
+    /**
+     * Captures the full authorized amount and closes the authorization. `mockApplicationCode` is
+     * sandbox negative testing (PayPal-Mock-Response), used only by `pnpm paypal:verify-shapes`.
+     */
     async captureAuthorization(
       authorizationId: string,
       requestId: string,
-      opts: { invoiceId?: string } = {},
+      opts: { invoiceId?: string; mockApplicationCode?: string } = {},
     ): Promise<PayPalCapture> {
-      return call(Capture, "POST", `/v2/payments/authorizations/${seg(authorizationId)}/capture`, requestId, {
-        final_capture: true,
-        ...(opts.invoiceId ? { invoice_id: opts.invoiceId } : {}),
+      return call(
+        Capture,
+        "POST",
+        `/v2/payments/authorizations/${seg(authorizationId)}/capture`,
+        requestId,
+        { final_capture: true, ...(opts.invoiceId ? { invoice_id: opts.invoiceId } : {}) },
+        opts.mockApplicationCode
+          ? { "PayPal-Mock-Response": JSON.stringify({ mock_application_codes: opts.mockApplicationCode }) }
+          : {},
+      );
+    },
+
+    /** Read-only: an authorization's current status (verify-shapes script only). */
+    async getAuthorization(authorizationId: string): Promise<PayPalAuthorization> {
+      return call(Authorization, "GET", `/v2/payments/authorizations/${seg(authorizationId)}`);
+    },
+
+    /**
+     * Webhooks simulator (verify-shapes script only): PayPal's mock event of `eventType`, posted to
+     * `url`. Mock events can't pass verify-webhook-signature, so our listener would refuse them.
+     */
+    async simulateWebhookEvent(
+      eventType: string,
+      url: string,
+      requestId: string,
+      resourceVersion?: string,
+    ): Promise<SimulatedEvent> {
+      return call(SimulatedEvent, "POST", "/v1/notifications/simulate-event", requestId, {
+        url,
+        event_type: eventType,
+        ...(resourceVersion ? { resource_version: resourceVersion } : {}),
       });
     },
 

@@ -17,6 +17,7 @@ import { z } from "zod";
 import type { AgentConfig, AppContext } from "../context.js";
 import { authorize, type CheckoutEvent } from "./checkout.js";
 import { merchantClient, type MerchantClient } from "./merchant.js";
+import { mcpMerchantClient } from "./merchant-mcp.js";
 import type { ToolSpec } from "./planner.js";
 import { trustedMerchant, verifyOfferWithRegistry } from "./trust.js";
 
@@ -185,7 +186,8 @@ async function run(ctx: AppContext, agent: AgentConfig, s: ChatSession, name: To
       Args.discover_merchants.parse(args);
       const seen = new Map<string, { url: string; client: MerchantClient; name: string }[]>();
       for (const url of agent.merchantUrls) {
-        const client = merchantClient(url, agent.fetch);
+        const client =
+          agent.merchantTransport === "mcp" ? mcpMerchantClient(url, agent.fetch) : merchantClient(url, agent.fetch);
         try {
           const card = await client.card();
           const merchant = await trustedMerchant(ctx.store, card.merchantAgentId);

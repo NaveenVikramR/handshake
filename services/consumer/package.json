@@ -12,6 +12,7 @@
   "dependencies": {
     "@handshake/core": "workspace:*",
     "@handshake/db": "workspace:*",
+    "@modelcontextprotocol/sdk": "1.32.2",
     "@simplewebauthn/server": "14.0.3",
     "express": "5.3.0",
     "openai": "7.34.0",

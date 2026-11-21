@@ -1,6 +1,6 @@
 // Registry reads, catalog, and the stock-holding offer write (SPEC §4.1, §9).
 // Prisma for real runs; memory for tests. Same contract.
-import { HandshakeError, type SignedOffer } from "@handshake/core";
+import { HandshakeError, SignedOffer } from "@handshake/core";
 import type { Prisma, PrismaClient } from "@handshake/db";
 
 export interface ProductRow {
@@ -69,6 +69,8 @@ export interface OfferStore {
    * Returns how many offers it expired.
    */
   releaseExpired(now: number, limit?: number): Promise<number>;
+  /** The merchant-signed offer exactly as issued (dispute evidence, D36). */
+  getSignedOffer(id: string): Promise<SignedOffer | undefined>;
 }
 
 const TX = { maxWait: 10_000, timeout: 15_000 };
@@ -137,6 +139,11 @@ export function prismaOfferStore(db: PrismaClient): OfferStore {
       }, TX);
     },
 
+    async getSignedOffer(id) {
+      const row = await db.offer.findUnique({ where: { id }, select: { payloadJson: true } });
+      const parsed = SignedOffer.safeParse(row?.payloadJson);
+      return parsed.success ? parsed.data : undefined;
+    },
     async releaseExpired(now, limit = 100) {
       const due = await db.offer.findMany({
         where: { status: "open", holdUntil: { lt: new Date(now) } },
@@ -219,6 +226,9 @@ export function memoryOfferStore(seed: {
       const p = priced.offer.payload;
       offers.set(p.offerId, { agentId, status: "open", holdUntil: p.holdUntil * 1000, lines, offer: priced.offer });
       return priced;
+    },
+    async getSignedOffer(id) {
+      return offers.get(id)?.offer;
     },
     async releaseExpired(now, limit = 100) {
       let released = 0;

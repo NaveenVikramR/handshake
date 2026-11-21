@@ -40,7 +40,7 @@ export const Catalog = z.object({
 });
 export type Catalog = z.infer<typeof Catalog>;
 
-const OfferResponse = z.object({ offer: SignedOffer });
+export const OfferResponse = z.object({ offer: SignedOffer });
 
 /** The gate's answer: a receipt, or PayPal's approve link for a first (wallet-saving) order. */
 const PayerAction = z.object({
@@ -51,7 +51,7 @@ const PayerAction = z.object({
 export type PaymentOutcome =
   | { kind: "receipt"; receipt: Receipt }
   | { kind: "payer_action"; requestId: string; approveUrl: string };
-const Outcome = z.union([Receipt, PayerAction]).transform(
+export const Outcome = z.union([Receipt, PayerAction]).transform(
   (b): PaymentOutcome =>
     "approveUrl" in b
       ? { kind: "payer_action", requestId: b.requestId, approveUrl: b.approveUrl }
@@ -71,7 +71,7 @@ export interface MerchantClient {
 }
 
 /** A merchant error code we pass on (e.g. OUT_OF_STOCK); anything unknown becomes MERCHANT_UNTRUSTED. */
-function merchantError(status: number, body: unknown): HandshakeError {
+export function merchantError(status: number, body: unknown): HandshakeError {
   const parsed = ErrorResponse.safeParse(body);
   const code = parsed.success ? parsed.data.error : undefined;
   if (code && (ERROR_CODES as readonly string[]).includes(code)) {

@@ -8,12 +8,14 @@
     "start": "tsx src/server.ts",
     "paypal:smoke": "tsx scripts/paypal-smoke.ts",
     "paypal:webhook": "tsx scripts/paypal-webhook-create.ts",
+    "paypal:verify-shapes": "tsx scripts/paypal-verify-shapes.ts",
     "typecheck": "tsc -p tsconfig.json",
     "demo:reset": "tsx scripts/demo-reset.ts"
   },
   "dependencies": {
     "@handshake/core": "workspace:*",
     "@handshake/db": "workspace:*",
+    "@modelcontextprotocol/sdk": "1.32.2",
     "@paypal/agent-toolkit": "1.11.0",
     "express": "5.3.0",
     "openai": "7.34.0",

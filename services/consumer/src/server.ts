@@ -51,6 +51,7 @@ const app = createApp({
       .split(",")
       .map((u) => u.trim())
       .filter(Boolean),
+    merchantTransport: process.env.MERCHANT_TRANSPORT === "mcp" ? "mcp" : "http",
     webUrl: required("WEB_URL"),
     spent: (key) => ledger.spent(key),
     planner: openAIPlanner({
